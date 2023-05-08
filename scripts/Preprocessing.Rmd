@@ -129,37 +129,3 @@ int <- int %>%
   mutate(realDur = ifelse(is.na(invalidTurn), intDur - deleteDur, NA),
          artRate = vowels / realDur)
 ```
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
