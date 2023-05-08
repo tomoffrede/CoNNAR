@@ -1,0 +1,165 @@
+---
+title: "Preprocessing"
+author: "Tom Offrede"
+date: "2023-05-08"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Read TextGrids, which contain annotation of turn duration and phonetic transcription, and create dataset with speech rate in each audio file.
+
+```{r}
+library(stringr)
+library(tidyverse)
+library(rPraat)
+
+folderData <- paste0(here::here(), "/data/all/")
+
+files <- list.files(folderData, "TextGrid")
+files <- files[grepl("free|pix", files)]
+# files <- files[files!="p01c02_L2C1_free_ch1.TextGrid"] # this file is corrupted or something
+```
+
+```{r}
+# to check the file naming
+
+# names <- data.frame(matrix(nrow=0, ncol=4))
+# names(names) <- c("1", "2", "3", "4")
+# for(f in files){
+#   s <- str_split(gsub(".TextGrid", "", f), fixed("_"))[[1]]
+#   names[nrow(names)+1,] <- c(s[[1]], s[[2]], s[[3]], s[[4]])
+# }
+# names
+```
+
+
+```{r}
+# to check what phones there are and what words they come from
+
+# phones <- data.frame(matrix(nrow=0, ncol=4))
+# names(phones) <- c("file", "phone", "word", "wordPhon")
+# for(f in files){
+#   tg <- tg.read(paste0(folderData, f), encoding = detectEncoding(paste0(folderData, f)))
+#   
+#   for(i in 1:tg.getNumberOfIntervals(tg, "MAU")){
+#     if(tg.getLabel(tg, "MAU", i) != ""){
+#       phones[nrow(phones)+1,] <- c(f,
+#                                    tg.getLabel(tg, "MAU", i),
+#                                    tg.getLabel(tg, "ORT-MAU", tg.getIntervalIndexAtTime(tg, "ORT-MAU", as.numeric(tg.getIntervalStartTime(tg, "MAU", i))+0.000001)),
+#                                    tg.getLabel(tg, "KAN-MAU", tg.getIntervalIndexAtTime(tg, "KAN-MAU", as.numeric(tg.getIntervalStartTime(tg, "MAU", i))+0.000001)))
+#     }
+#   }
+# }
+# phones <- phones %>% filter(phone!="<p:>")
+# p <- aggregate(word ~ phone, phones, paste, collapse=",")
+```
+
+
+```{r}
+int <- data.frame(matrix(nrow=0, ncol=12))
+names(int) <- c("file", "dyad", "speaker", "confederate", "intervalTRN", "label", "intOnset", "intOffset", "intDur", "deleteDur", "invalidTurn", "vowels")
+
+for(f in files){
+  tg <- tg.read(paste0(folderData, f), encoding = detectEncoding(paste0(folderData, f)))
+  
+  for(i in 1:tg.getNumberOfIntervals(tg, "TRN")){
+    if(tg.getLabel(tg, "TRN", i) != ""){
+      del <- 0
+      vowels <- 0
+      
+      int[nrow(int)+1,] <- c(f,
+                             str_split(f, fixed("_"))[[1]][[1]],
+                             ifelse(grepl("_ch1", f), "participant", "confederate"),
+                             str_split(f, fixed("_"))[[1]][[2]],
+                             i,
+                             tg.getLabel(tg, "TRN", i),
+                             tg.getIntervalStartTime(tg, "TRN", i),
+                             tg.getIntervalEndTime(tg, "TRN", i),
+                             tg.getIntervalDuration(tg, "TRN", i),
+                             NA, NA, NA
+      )
+      
+      # now write down the periods of time to delete due to them being annotated as <usb>, <nib>, or <pseudo>
+      if(grepl("<", int$label[nrow(int)])){
+        for(p in c(tg.getIntervalIndexAtTime(tg, "MAU", as.numeric(int$intOnset[nrow(int)])):
+                   tg.getIntervalIndexAtTime(tg, "MAU", as.numeric(int$intOffset[nrow(int)])))){
+          if(tg.getIntervalStartTime(tg, "MAU", p) >= int$intOnset[nrow(int)]){ # make sure the phone interval starts and ends within the TRN interval, since they aren't perfectly aligned
+            if(tg.getIntervalEndTime(tg, "MAU", p) <= int$intOffset[nrow(int)]){
+              if(grepl("<", tg.getLabel(tg, "MAU", p))){
+                del <- del + as.numeric(tg.getIntervalDuration(tg, "MAU", p)) # if there are multiple "<>" intervals, we add up all of them
+              }
+            }
+          }
+        }
+      }
+      int$deleteDur[nrow(int)] <- del
+      if(int$label[nrow(int)] == "<nib>" | int$label[nrow(int)] == "<pseudo>" | int$label[nrow(int)] == "<usb>"){ # delete the turns that are entirely a forbidden string
+        int$invalidTurn[nrow(int)] <- "yes"
+      }
+      if(is.na(int$invalidTurn[nrow(int)])){
+        for(p in c(tg.getIntervalIndexAtTime(tg, "MAU", as.numeric(int$intOnset[nrow(int)])):
+                   tg.getIntervalIndexAtTime(tg, "MAU", as.numeric(int$intOffset[nrow(int)])))){
+          if(tg.getIntervalStartTime(tg, "MAU", p) >= int$intOnset[nrow(int)]){
+            if(tg.getIntervalEndTime(tg, "MAU", p) <= int$intOffset[nrow(int)]){
+              if(grepl("@|2|9|a|E|e|I|i|O|o|U|u|y", tg.getLabel(tg, "MAU", p))){
+                vowels <- vowels + 1
+              }
+              if(grepl("6", tg.getLabel(tg, "MAU", p))){ # if the vowel is "6", it should only be counted as a different syllable if the previous phone wasn't a vowel
+                if(!grepl("@|2|9|a|E|e|I|i|O|o|U|u|y", tg.getLabel(tg, "MAU", p-1))){
+                  vowels <- vowels + 1
+                }
+              }
+            }
+          }
+        }
+      }
+      int$vowels[nrow(int)] <- vowels
+    }
+  }
+}
+
+int <- int %>% 
+  group_by(file) %>% 
+  mutate(IPU = 1:n()) %>% 
+  ungroup %>% 
+  mutate_at(c("intDur", "deleteDur", "vowels"), as.numeric) %>% 
+  mutate(realDur = ifelse(is.na(invalidTurn), intDur - deleteDur, NA),
+         artRate = vowels / realDur)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
