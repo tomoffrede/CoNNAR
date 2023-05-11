@@ -1,0 +1,172 @@
+---
+title: "Annotate turns"
+author: "Tom Offrede"
+date: "2023-05-09"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(stringr)
+library(tidyverse)
+library(rPraat)
+
+folderData <- paste0(here::here(), "/data/all/")
+folderJoint <- paste0(here::here(), "/data/joint/")
+
+files <- list.files(folderData, "TextGrid")
+files <- files[grepl("free", files)]
+
+ch1 <- files[grepl("ch1", files)]
+ch2 <- files[grepl("ch2", files)]
+
+ff <- data.frame(cbind(ch1, ch2)) %>% 
+  mutate(worked = ifelse(str_split(gsub("ch1", "", ch1), fixed("_"))[[1]][[1]] == str_split(gsub("ch2", "", ch2), fixed("_"))[[1]][[1]] &
+                           str_split(gsub("ch1", "", ch1), fixed("_"))[[1]][[2]] == str_split(gsub("ch2", "", ch2), fixed("_"))[[1]][[2]] &
+                           str_split(gsub("ch1", "", ch1), fixed("_"))[[1]][[3]] == str_split(gsub("ch2", "", ch2), fixed("_"))[[1]][[3]] &
+                           str_split(gsub("ch1", "", ch1), fixed("_"))[[1]][[4]] == str_split(gsub("ch2", "", ch2), fixed("_"))[[1]][[4]],
+                         "worked!", "NO!!!"))
+table(ff$worked)
+```
+
+
+```{r}
+for(i in 1:nrow(ff)){
+  tg1 <- tg.read(paste0(folderData, ff$ch1[i]), encoding=detectEncoding(paste0(folderData, ff$ch1[i])))
+  tg2 <- tg.read(paste0(folderData, ff$ch2[i]), encoding=detectEncoding(paste0(folderData, ff$ch2[i])))
+  
+  tgT <- tg.createNewTextGrid(tMin = as.numeric(tg.getStartTime(tg1)), tMax = as.numeric(tg.getEndTime(tg1)))
+  
+  tgT <- tg.insertNewIntervalTier(tgT, newTierName ="TRN-ch1")
+  for(n in 1:tg.getNumberOfIntervals(tg1, "TRN")){
+    tgT <- tg.insertInterval(tgT,
+                             "TRN-ch1",
+                             tStart=tg.getIntervalStartTime(tg1, "TRN", n),
+                             # tEnd=ifelse(n == tg.getNumberOfIntervals(tg1, "TRN"),
+                             #             dur - 0.0000001,
+                             #             tg.getIntervalEndTime(tg1, "TRN", n)),
+                             tEnd=tg.getIntervalEndTime(tg1, "TRN", n),
+                             label=tg.getLabel(tg1, "TRN", n))
+  }
+  
+  tgT <- tg.insertNewIntervalTier(tgT, newTierName ="TRN-ch2")
+  for(n in 1:tg.getNumberOfIntervals(tg2, "TRN")){
+    tgT <- tg.insertInterval(tgT,
+                             "TRN-ch2",
+                             tStart=tg.getIntervalStartTime(tg2, "TRN", n),
+                             # tEnd=ifelse(n == tg.getNumberOfIntervals(tg2, "TRN"),
+                             #             dur - 0.0000001,
+                             #             tg.getIntervalEndTime(tg2, "TRN", n)),
+                             tEnd=tg.getIntervalEndTime(tg2, "TRN", n),
+                             label=tg.getLabel(tg2, "TRN", n))
+  }
+  
+  # create dataset with all intervals and labels
+  
+  int <- data.frame(matrix(nrow=0, ncol=6))
+  names(int) <- c("speaker", "label", "onset", "offset", "interval", "turn")
+  
+  for(tier in c("TRN-ch1", "TRN-ch2")){
+    for(n in 1:tg.getNumberOfIntervals(tgT, tier)){
+      if(tg.getLabel(tgT, tier, n) != ""){
+        int[nrow(int)+1,] <- c(gsub("TRN-", "", tier),
+                               tg.getLabel(tgT, tier, n),
+                               as.numeric(tg.getIntervalStartTime(tgT, tier, n)),
+                               as.numeric(tg.getIntervalEndTime(tgT, tier, n)),
+                               n,
+                               0
+        )
+      }
+    }
+  }
+  
+  
+  int <- int %>% 
+    mutate_at(c("onset", "offset", "turn"), as.numeric) %>% 
+    arrange(onset)
+  
+  for(r in 1:nrow(int)){
+    if(r > 1){ # from second row of `int`:
+      if(int$speaker[r] != int$speaker[r-1]){ # when two consecutive rows refer to different speakers:
+        if(int$offset[r] < int$offset[r-1]){ # if one of the IPUs is contained within the IPU of the other speaker:
+          int$turn[r] <- NA # don't count this turn
+        }
+      }
+    }
+  }
+  
+  int <- int %>% 
+    filter(!is.na(turn)) # now delete all rows containing a row to ignore
+  # we do it like this (marking as NA and then deleting them) so they don't interfere with the counting of turns of the other rows, and so the for loop doesn't skip any rows, since it goes from 1 until the last, and deleting a row during the loop would cause it problems
+  
+  turn1 <- 0
+  turn2 <- 0
+  
+  for(r in 1:nrow(int)){
+    if(r == 1){ # for first row of `int`, start at turn 1
+      turn1 <- ifelse(int$speaker[r] == "ch1", turn1 + 1, turn1)
+      turn2 <- ifelse(int$speaker[r] == "ch2", turn2 + 1, turn2)
+      int$turn[r] <- ifelse(int$speaker[r] == "ch1", turn1, turn2)
+    }
+    
+    if(r > 1){ # from second row of `int`:
+      if(int$speaker[r] != int$speaker[r-1]){ # when two consecutive rows refer to different speakers:
+        if(int$offset[r] >= int$offset[r-1]){ # if the current IPU does finish after the end of the previous IPU (most cases):
+          turn1 <- ifelse(int$speaker[r] == "ch1", turn1 + 1, turn1) # add a turn count
+          turn2 <- ifelse(int$speaker[r] == "ch2", turn2 + 1, turn2)
+          int$turn[r] <- ifelse(int$speaker[r] == "ch1", turn1, turn2) # and save the turn number
+        }
+      }
+      if(int$speaker[r] == int$speaker[r-1]){ # if two consecutive rows refer to the same speaker:
+        if(!is.na(int$turn[r-1])){ # if the previous row isn't NA (see above):
+          int$turn[r] <- ifelse(int$speaker[r] == "ch1", turn1, turn2) # add the current turn count as the turn number (without adding to the turn count)
+        }
+        if(is.na(int$turn[r-1])){ # if it is NA, don't use it for counting turns:
+          turn1 <- ifelse(int$speaker[r] == "ch1", turn1 + 1, turn1) # add a turn count
+          turn2 <- ifelse(int$speaker[r] == "ch2", turn2 + 1, turn2)
+          int$turn[r] <- ifelse(int$speaker[r] == "ch1", turn1, turn2) # and save the turn number
+        }
+      }
+    }
+  }
+  
+  int <- int %>% 
+    group_by(speaker, turn) %>% 
+    mutate(onsetTurn = min(onset),
+           offsetTurn = max(offset)) %>% 
+    ungroup() %>% 
+    filter(!duplicated(paste0(speaker, turn)))
+  
+  
+  tgT <- tg.insertNewIntervalTier(tgT, newInd = Inf, "turn-ch1")
+  tgT <- tg.insertNewIntervalTier(tgT, newInd = Inf, "turn-ch2")
+  
+  for(r in 1:nrow(int)){
+    tgT <- tg.insertInterval(tgT, paste0("turn-", int$speaker[r]), int$onsetTurn[r], int$offsetTurn[r], paste0("turn", int$turn[r]))
+  }
+  
+  tg.write(tgT, paste0(folderJoint, gsub("ch1", "TRN", ff$ch1[i])))
+}
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

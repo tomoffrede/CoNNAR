@@ -19,7 +19,7 @@ library(rPraat)
 folderData <- paste0(here::here(), "/data/all/")
 
 files <- list.files(folderData, "TextGrid")
-files <- files[grepl("free|pix", files)]
+files <- files[grepl("free", files)]
 # files <- files[files!="p01c02_L2C1_free_ch1.TextGrid"] # this file is corrupted or something
 ```
 
@@ -39,22 +39,22 @@ files <- files[grepl("free|pix", files)]
 ```{r}
 # to check what phones there are and what words they come from
 
-# phones <- data.frame(matrix(nrow=0, ncol=4))
-# names(phones) <- c("file", "phone", "word", "wordPhon")
-# for(f in files){
-#   tg <- tg.read(paste0(folderData, f), encoding = detectEncoding(paste0(folderData, f)))
-#   
-#   for(i in 1:tg.getNumberOfIntervals(tg, "MAU")){
-#     if(tg.getLabel(tg, "MAU", i) != ""){
-#       phones[nrow(phones)+1,] <- c(f,
-#                                    tg.getLabel(tg, "MAU", i),
-#                                    tg.getLabel(tg, "ORT-MAU", tg.getIntervalIndexAtTime(tg, "ORT-MAU", as.numeric(tg.getIntervalStartTime(tg, "MAU", i))+0.000001)),
-#                                    tg.getLabel(tg, "KAN-MAU", tg.getIntervalIndexAtTime(tg, "KAN-MAU", as.numeric(tg.getIntervalStartTime(tg, "MAU", i))+0.000001)))
-#     }
-#   }
-# }
-# phones <- phones %>% filter(phone!="<p:>")
-# p <- aggregate(word ~ phone, phones, paste, collapse=",")
+phones <- data.frame(matrix(nrow=0, ncol=4))
+names(phones) <- c("file", "phone", "word", "wordPhon")
+for(f in files){
+  tg <- tg.read(paste0(folderData, f), encoding = detectEncoding(paste0(folderData, f)))
+
+  for(i in 1:tg.getNumberOfIntervals(tg, "MAU")){
+    if(tg.getLabel(tg, "MAU", i) != ""){
+      phones[nrow(phones)+1,] <- c(f,
+                                   tg.getLabel(tg, "MAU", i),
+                                   tg.getLabel(tg, "ORT-MAU", tg.getIntervalIndexAtTime(tg, "ORT-MAU", as.numeric(tg.getIntervalStartTime(tg, "MAU", i))+0.000001)),
+                                   tg.getLabel(tg, "KAN-MAU", tg.getIntervalIndexAtTime(tg, "KAN-MAU", as.numeric(tg.getIntervalStartTime(tg, "MAU", i))+0.000001)))
+    }
+  }
+}
+phones <- phones %>% filter(phone!="<p:>")
+p <- aggregate(word ~ phone, phones, paste, collapse=",")
 ```
 
 
@@ -72,7 +72,7 @@ for(f in files){
       
       int[nrow(int)+1,] <- c(f,
                              str_split(f, fixed("_"))[[1]][[1]],
-                             ifelse(grepl("_ch1", f), "participant", "confederate"),
+                             ifelse(grepl("_ch1", f), "confederate", "participant"),
                              str_split(f, fixed("_"))[[1]][[2]],
                              i,
                              tg.getLabel(tg, "TRN", i),
@@ -104,11 +104,11 @@ for(f in files){
                    tg.getIntervalIndexAtTime(tg, "MAU", as.numeric(int$intOffset[nrow(int)])))){
           if(tg.getIntervalStartTime(tg, "MAU", p) >= int$intOnset[nrow(int)]){
             if(tg.getIntervalEndTime(tg, "MAU", p) <= int$intOffset[nrow(int)]){
-              if(grepl("@|2|9|a|E|e|I|i|O|o|U|u|y", tg.getLabel(tg, "MAU", p))){
+              if(grepl("@|2|9|a|E|e|I|i|O|o|U|u|y|Y", tg.getLabel(tg, "MAU", p))){
                 vowels <- vowels + 1
               }
               if(grepl("6", tg.getLabel(tg, "MAU", p))){ # if the vowel is "6", it should only be counted as a different syllable if the previous phone wasn't a vowel
-                if(!grepl("@|2|9|a|E|e|I|i|O|o|U|u|y", tg.getLabel(tg, "MAU", p-1))){
+                if(!grepl("@|2|9|a|E|e|I|i|O|o|U|u|y|Y", tg.getLabel(tg, "MAU", p-1))){
                   vowels <- vowels + 1
                 }
               }
@@ -129,3 +129,4 @@ int <- int %>%
   mutate(realDur = ifelse(is.na(invalidTurn), intDur - deleteDur, NA),
          artRate = vowels / realDur)
 ```
+  
