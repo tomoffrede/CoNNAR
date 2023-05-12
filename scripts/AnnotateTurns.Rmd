@@ -150,23 +150,17 @@ for(i in 1:nrow(ff)){
   
   tg.write(tgT, paste0(folderJoint, gsub("ch1", "TRN", ff$ch1[i])))
 }
+
+###### put the following chunk somewhere in the loop above to add the last IPU from the last speaker on each row (and then save the timing info of each IPU):
+
+for(i in 1:nrow(int)){
+  lagCount <- 0
+  while(i - lagCount > 0 && !is.na(lag(int$speaker, n = lagCount)[i]) && lag(int$speaker, n=lagCount)[i] == int$speaker[i]){
+    lagCount <- lagCount + 1
+  }
+  int$previous[i] <- lag(int$speaker, lagCount)[i]
+}
+
 ```
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
