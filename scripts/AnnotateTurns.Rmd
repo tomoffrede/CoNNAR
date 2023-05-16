@@ -66,8 +66,8 @@ for(i in 1:nrow(ff)){
   
   # create dataset with all intervals and labels
   
-  int <- data.frame(matrix(nrow=0, ncol=6))
-  names(int) <- c("speaker", "label", "onset", "offset", "interval", "turn")
+  int <- data.frame(matrix(nrow=0, ncol=7))
+  names(int) <- c("speaker", "label", "onset", "offset", "duration", "interval", "turn")
   
   for(tier in c("TRN-ch1", "TRN-ch2")){
     for(n in 1:tg.getNumberOfIntervals(tgT, tier)){
@@ -76,6 +76,7 @@ for(i in 1:nrow(ff)){
                                tg.getLabel(tgT, tier, n),
                                as.numeric(tg.getIntervalStartTime(tgT, tier, n)),
                                as.numeric(tg.getIntervalEndTime(tgT, tier, n)),
+                               as.numeric(tg.getIntervalDuration(tgT, tier, n)),
                                n,
                                0
         )
@@ -85,22 +86,30 @@ for(i in 1:nrow(ff)){
   
   
   int <- int %>% 
-    mutate_at(c("onset", "offset", "turn"), as.numeric) %>% 
+    mutate_at(c("onset", "offset", "duration", "turn"), as.numeric) %>% 
     arrange(onset)
   
   for(r in 1:nrow(int)){
-    if(r > 1){ # from second row of `int`:
-      if(int$speaker[r] != int$speaker[r-1]){ # when two consecutive rows refer to different speakers:
-        if(int$offset[r] < int$offset[r-1]){ # if one of the IPUs is contained within the IPU of the other speaker:
-          int$turn[r] <- NA # don't count this turn
-        }
-      }
+    lagCount <- 0
+    while(r - lagCount > 0 && !is.na(lag(int$speaker, n = lagCount)[r]) && lag(int$speaker, n=lagCount)[r] == int$speaker[r]){
+      lagCount <- lagCount + 1
     }
+    int$previousSp[r] <- lag(int$speaker, lagCount)[r]
+    int$previousOnset[r] <- lag(int$onset, lagCount)[r]
+    int$previousOffset[r] <- lag(int$offset, lagCount)[r]
+    int$previousDur[r] <- lag(int$duration, lagCount)[r]
   }
   
   int <- int %>% 
+    mutate(distanceOnsets = onset - previousOnset,
+           distanceOffsets = offset - previousOffset) %>% 
+    mutate(turn = case_when(
+      onset > previousOnset & offset < previousOffset ~ as.numeric(NA),
+      abs(distanceOnsets) <= 0.12 & duration < previousDur ~ as.numeric(NA),
+      abs(distanceOffsets) <= 0.12 & duration < previousDur ~ as.numeric(NA),
+      TRUE ~ as.numeric(turn)
+    )) %>% 
     filter(!is.na(turn)) # now delete all rows containing a row to ignore
-  # we do it like this (marking as NA and then deleting them) so they don't interfere with the counting of turns of the other rows, and so the for loop doesn't skip any rows, since it goes from 1 until the last, and deleting a row during the loop would cause it problems
   
   turn1 <- 0
   turn2 <- 0
@@ -153,13 +162,7 @@ for(i in 1:nrow(ff)){
 
 ###### put the following chunk somewhere in the loop above to add the last IPU from the last speaker on each row (and then save the timing info of each IPU):
 
-for(i in 1:nrow(int)){
-  lagCount <- 0
-  while(i - lagCount > 0 && !is.na(lag(int$speaker, n = lagCount)[i]) && lag(int$speaker, n=lagCount)[i] == int$speaker[i]){
-    lagCount <- lagCount + 1
-  }
-  int$previous[i] <- lag(int$speaker, lagCount)[i]
-}
+
 
 ```
 
