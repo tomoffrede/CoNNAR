@@ -76,9 +76,6 @@ for(i in 1:nrow(ff)){
     tgT <- tg.insertInterval(tgT,
                              "TRN-ch1",
                              tStart=tg.getIntervalStartTime(tg1, "TRN", n),
-                             # tEnd=ifelse(n == tg.getNumberOfIntervals(tg1, "TRN"),
-                             #             dur - 0.0000001,
-                             #             tg.getIntervalEndTime(tg1, "TRN", n)),
                              tEnd=tg.getIntervalEndTime(tg1, "TRN", n),
                              label=tg.getLabel(tg1, "TRN", n))
   }
@@ -88,9 +85,6 @@ for(i in 1:nrow(ff)){
     tgT <- tg.insertInterval(tgT,
                              "TRN-ch2",
                              tStart=tg.getIntervalStartTime(tg2, "TRN", n),
-                             # tEnd=ifelse(n == tg.getNumberOfIntervals(tg2, "TRN"),
-                             #             dur - 0.0000001,
-                             #             tg.getIntervalEndTime(tg2, "TRN", n)),
                              tEnd=tg.getIntervalEndTime(tg2, "TRN", n),
                              label=tg.getLabel(tg2, "TRN", n))
   }
