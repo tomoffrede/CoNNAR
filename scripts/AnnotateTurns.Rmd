@@ -35,9 +35,40 @@ table(ff$worked)
 
 ```{r}
 for(i in 1:nrow(ff)){
+  # read the two speakers' textgrids
   tg1 <- tg.read(paste0(folderData, ff$ch1[i]), encoding=detectEncoding(paste0(folderData, ff$ch1[i])))
   tg2 <- tg.read(paste0(folderData, ff$ch2[i]), encoding=detectEncoding(paste0(folderData, ff$ch2[i])))
   
+  # make sure that all the intervals containing speech are connected into one interval (i.e., there are no consecutive intervals where both are speech; if there is a division between intervals, it should be because one is speech and one is silence)
+  tg <- list(tg1, tg2) # make a list of the two textgrids so we can use a single for loop for both
+  for(t in 1:length(tg)){
+    for(n in 1:(tg.getNumberOfIntervals(tg[[t]], "TRN")-1)){
+      if(n > (tg.getNumberOfIntervals(tg[[t]], "TRN")-1)){ # if the number of intervals in the tier changed and n is now higher than the last current interval number, skip this number
+        next
+      }
+      if(tg.getLabel(tg[[t]], "TRN", n) != ""){ # both the current and the following interval are non-silence
+        if(tg.getLabel(tg[[t]], "TRN", n+1) != ""){
+          tg[[t]] <- tg.removeIntervalRightBoundary(tg[[t]], "TRN", n)
+        }
+      }
+    }
+  }
+  for(t in 1:length(tg)){ # repeat the loop above to make sure none of the intervals were left behind (since the number of intervals changes as the loop is executed, it could be that some interval gets unchecked)
+    for(n in 1:(tg.getNumberOfIntervals(tg[[t]], "TRN")-1)){
+      if(n > (tg.getNumberOfIntervals(tg[[t]], "TRN")-1)){
+        next
+      }
+      if(tg.getLabel(tg[[t]], "TRN", n) != ""){
+        if(tg.getLabel(tg[[t]], "TRN", n+1) != ""){
+          tg[[t]] <- tg.removeIntervalRightBoundary(tg[[t]], "TRN", n)
+        }
+      }
+    }
+  }
+  tg1 <- tg[[1]]
+  tg2 <- tg[[2]]
+  
+  # create a new textgrid that will contain the information of both tg1 and tg2
   tgT <- tg.createNewTextGrid(tMin = as.numeric(tg.getStartTime(tg1)), tMax = as.numeric(tg.getEndTime(tg1)))
   
   tgT <- tg.insertNewIntervalTier(tgT, newTierName ="TRN-ch1")
@@ -84,7 +115,6 @@ for(i in 1:nrow(ff)){
     }
   }
   
-  
   int <- int %>% 
     mutate_at(c("onset", "offset", "duration", "turn"), as.numeric) %>% 
     arrange(onset)
@@ -98,15 +128,28 @@ for(i in 1:nrow(ff)){
     int$previousOnset[r] <- lag(int$onset, lagCount)[r]
     int$previousOffset[r] <- lag(int$offset, lagCount)[r]
     int$previousDur[r] <- lag(int$duration, lagCount)[r]
+    
+    leadCount <- 0
+    while(!is.na(lead(int$speaker, n = leadCount)[r]) && lead(int$speaker, n=leadCount)[r] == int$speaker[r]){
+      leadCount <- leadCount + 1
+    }
+    int$nextSp[r] <- lead(int$speaker, leadCount)[r]
+    int$nextOnset[r] <- lead(int$onset, leadCount)[r]
+    int$nextOffset[r] <- lead(int$offset, leadCount)[r]
+    int$nextDur[r] <- lead(int$duration, leadCount)[r]
   }
   
   int <- int %>% 
-    mutate(distanceOnsets = onset - previousOnset,
-           distanceOffsets = offset - previousOffset) %>% 
+    mutate(distanceOnsetsP = onset - previousOnset,
+           distanceOffsetsP = offset - previousOffset,
+           distanceOnsetsN = onset - nextOnset,
+           distanceOffsetsN = offset - nextOffset) %>% 
     mutate(turn = case_when(
       onset > previousOnset & offset < previousOffset ~ as.numeric(NA),
-      abs(distanceOnsets) <= 0.12 & duration < previousDur ~ as.numeric(NA),
-      abs(distanceOffsets) <= 0.12 & duration < previousDur ~ as.numeric(NA),
+      abs(distanceOnsetsP) <= 0.12 & duration < previousDur ~ as.numeric(NA),
+      abs(distanceOffsetsP) <= 0.12 & duration < previousDur ~ as.numeric(NA),
+      abs(distanceOnsetsN) <= 0.12 & duration < nextDur ~ as.numeric(NA),
+      abs(distanceOffsetsN) <= 0.12 & duration < nextDur ~ as.numeric(NA),
       TRUE ~ as.numeric(turn)
     )) %>% 
     filter(!is.na(turn)) # now delete all rows containing a row to ignore
@@ -122,22 +165,14 @@ for(i in 1:nrow(ff)){
     }
     
     if(r > 1){ # from second row of `int`:
-      if(int$speaker[r] != int$speaker[r-1]){ # when two consecutive rows refer to different speakers:
-        if(int$offset[r] >= int$offset[r-1]){ # if the current IPU does finish after the end of the previous IPU (most cases):
-          turn1 <- ifelse(int$speaker[r] == "ch1", turn1 + 1, turn1) # add a turn count
-          turn2 <- ifelse(int$speaker[r] == "ch2", turn2 + 1, turn2)
-          int$turn[r] <- ifelse(int$speaker[r] == "ch1", turn1, turn2) # and save the turn number
-        }
+      if(int$speaker[r] != int$speaker[r-1]){ # if the current speaker is different from the previous row:
+        turn1 <- ifelse(int$speaker[r] == "ch1", turn1 + 1, turn1) # add a turn count
+        turn2 <- ifelse(int$speaker[r] == "ch2", turn2 + 1, turn2)
+        int$turn[r] <- ifelse(int$speaker[r] == "ch1", turn1, turn2) # and save the turn number
       }
-      if(int$speaker[r] == int$speaker[r-1]){ # if two consecutive rows refer to the same speaker:
-        if(!is.na(int$turn[r-1])){ # if the previous row isn't NA (see above):
-          int$turn[r] <- ifelse(int$speaker[r] == "ch1", turn1, turn2) # add the current turn count as the turn number (without adding to the turn count)
-        }
-        if(is.na(int$turn[r-1])){ # if it is NA, don't use it for counting turns:
-          turn1 <- ifelse(int$speaker[r] == "ch1", turn1 + 1, turn1) # add a turn count
-          turn2 <- ifelse(int$speaker[r] == "ch2", turn2 + 1, turn2)
-          int$turn[r] <- ifelse(int$speaker[r] == "ch1", turn1, turn2) # and save the turn number
-        }
+      
+      if(int$speaker[r] == int$speaker[r-1]){ # if the current speaker is the same as in the previous row:
+        int$turn[r] <- ifelse(int$speaker[r] == "ch1", turn1, turn2) # just save the current turn number
       }
     }
   }
@@ -159,11 +194,6 @@ for(i in 1:nrow(ff)){
   
   tg.write(tgT, paste0(folderJoint, gsub("ch1", "TRN", ff$ch1[i])))
 }
-
-###### put the following chunk somewhere in the loop above to add the last IPU from the last speaker on each row (and then save the timing info of each IPU):
-
-
-
 ```
 
 
