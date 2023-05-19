@@ -17,11 +17,21 @@ library(tidyverse)
 library(rPraat)
 
 folderData <- paste0(here::here(), "/data/all/")
+folderTurn <- paste0(here::here(), "/data/joint/")
 
 files <- list.files(folderData, "TextGrid")
 files <- files[grepl("free", files)]
-# files <- files[files!="p01c02_L2C1_free_ch1.TextGrid"] # this file is corrupted or something
+filesT <- list.files(folderTurn, "\\.TextGrid")
+
+ff <- data.frame(files = files,
+                 turn = rep(filesT, each=2)) %>% 
+  mutate(worked = ifelse(str_split(files, fixed("_"))[[1]][[1]] == str_split(turn, fixed("_"))[[1]][[1]] &
+                           str_split(files, fixed("_"))[[1]][[2]] == str_split(turn, fixed("_"))[[1]][[2]] &
+                           str_split(files, fixed("_"))[[1]][[3]] == str_split(turn, fixed("_"))[[1]][[3]],
+                         "worked!", "NO!!!"))
+table(ff$worked)
 ```
+
 
 ```{r}
 # to check the file naming
@@ -41,9 +51,9 @@ files <- files[grepl("free", files)]
 
 phones <- data.frame(matrix(nrow=0, ncol=4))
 names(phones) <- c("file", "phone", "word", "wordPhon")
-for(f in files){
-  tg <- tg.read(paste0(folderData, f), encoding = detectEncoding(paste0(folderData, f)))
-
+for(f in 1:nrow(ff)){
+  tg <- tg.read(paste0(folderData, ff$files[f]), encoding = detectEncoding(paste0(folderData, ff$files[f])))
+  
   for(i in 1:tg.getNumberOfIntervals(tg, "MAU")){
     if(tg.getLabel(tg, "MAU", i) != ""){
       phones[nrow(phones)+1,] <- c(f,
@@ -59,11 +69,12 @@ p <- aggregate(word ~ phone, phones, paste, collapse=",")
 
 
 ```{r}
-int <- data.frame(matrix(nrow=0, ncol=12))
-names(int) <- c("file", "dyad", "speaker", "confederate", "intervalTRN", "label", "intOnset", "intOffset", "intDur", "deleteDur", "invalidTurn", "vowels")
+int <- data.frame(matrix(nrow=0, ncol=13))
+names(int) <- c("file", "dyad", "speaker", "confederate", "turn", "intervalTRN", "label", "intOnset", "intOffset", "intDur", "deleteDur", "invalidTurn", "vowels")
 
-for(f in files){
-  tg <- tg.read(paste0(folderData, f), encoding = detectEncoding(paste0(folderData, f)))
+for(f in 1:nrow(ff)){
+  tg <- tg.read(paste0(folderData, ff$files[f]), encoding = detectEncoding(paste0(folderData, ff$files[f])))
+  tgTurn <- tg.read(paste0(folderTurn, ff$turn[f]), encoding = detectEncoding(paste0(folderTurn, ff$turn[f])))
   
   for(i in 1:tg.getNumberOfIntervals(tg, "TRN")){
     if(tg.getLabel(tg, "TRN", i) != ""){
@@ -71,9 +82,10 @@ for(f in files){
       vowels <- 0
       
       int[nrow(int)+1,] <- c(f,
-                             str_split(f, fixed("_"))[[1]][[1]],
+                             str_split(ff$files[f], fixed("_"))[[1]][[1]],
                              ifelse(grepl("_ch1", f), "confederate", "participant"),
-                             str_split(f, fixed("_"))[[1]][[2]],
+                             str_split(ff$files[f], fixed("_"))[[1]][[2]],
+                             NA, # this will be turn
                              i,
                              tg.getLabel(tg, "TRN", i),
                              tg.getIntervalStartTime(tg, "TRN", i),
@@ -81,6 +93,17 @@ for(f in files){
                              tg.getIntervalDuration(tg, "TRN", i),
                              NA, NA, NA
       )
+      
+      # now annotate turns
+      
+      tier <- paste0("turn-", str_split(ff$files[f], fixed("_"))[[1]][[4]])
+      for(t in 1:nrow(tgTurn, tier)){
+        if(tg.getIntervalStartTime(tgTurn, tier, t) <= tg.getIntervalStartTime(tg, "TRN", i)){
+          if(tg.getIntervalEndTime(tgTurn, tier, t) >= tg.getIntervalEndTime(tg, "TRN", i)){
+            int$turn[nrow(int)] <- tg.getLabel(tgTurn, tier, t)
+          }
+        }
+      }
       
       # now write down the periods of time to delete due to them being annotated as <usb>, <nib>, or <pseudo>
       if(grepl("<", int$label[nrow(int)])){
@@ -129,4 +152,3 @@ int <- int %>%
   mutate(realDur = ifelse(is.na(invalidTurn), intDur - deleteDur, NA),
          artRate = vowels / realDur)
 ```
-  
