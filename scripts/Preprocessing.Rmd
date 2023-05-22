@@ -16,8 +16,8 @@ library(stringr)
 library(tidyverse)
 library(rPraat)
 
-folderData <- paste0(here::here(), "/data/all/")
-folderTurn <- paste0(here::here(), "/data/joint/")
+folderData <- paste0(here::here(), "/data/corrected/")
+folderTurn <- paste0(here::here(), "/data/final/")
 
 files <- list.files(folderData, "TextGrid")
 files <- files[grepl("free", files)]
@@ -31,10 +31,59 @@ ff <- data.frame(files = files,
                          "worked!", "NO!!!"))
 table(ff$worked)
 ```
+# use MAU intervals to obtain IPUs
+
+IPUs are periods of voice activity with no pauses longer than 150ms
+
+```{r}
+for(f in files){
+  tg <- tg.read(paste0(folderData, f), encoding = detectEncoding(paste0(folderData, f)))
+  
+  tg <- tg.duplicateTier(tg, "MAU", newInd = Inf, newTierName = "IPU")
+  
+  # join all consecutive intervals that are non-silent
+  for(i in 1:(tg.getNumberOfIntervals(tg, "IPU")-1)){
+    if(i > (tg.getNumberOfIntervals(tg, "IPU")-1)){
+      next
+    }
+    if(tg.getLabel(tg, "IPU", i) != "<p:>"){
+      if(tg.getLabel(tg, "IPU", i+1) != "<p:>"){
+        tg <- tg.removeIntervalRightBoundary(tg, "IPU", i)
+        i <- i - 1
+      }
+    }
+  }
+  
+  # join into one IPU the intervals that are separated by pauses shorter than 150 ms
+  for(i in 1:(tg.getNumberOfIntervals(tg, "IPU")-2)){
+    if(i > (tg.getNumberOfIntervals(tg, "IPU")-2)){
+      next
+    }
+    if(tg.getLabel(tg, "IPU", i) != "<p:>"){ # if the current interval is not silent
+      if(tg.getLabel(tg,"IPU", i+1) == "<p:>"){ # if the next interval is silent
+        if(tg.getIntervalDuration(tg, "IPU", i+1) < 0.15){ # if the next interval is shorter than 150 ms
+          if(tg.getLabel(tg, "IPU", i+2) != "<p:>"){ # if the subsequent (after the next) interval is also not silent
+            tg <- tg.removeIntervalBothBoundaries(tg, "IPU", i+1) # remove both boundaries of the short pause interval
+          }
+        }
+      }
+    }
+  }
+
+  # relabel the intervals
+  for(i in 1:tg.getNumberOfIntervals(tg, "IPU")){
+    if(tg.getLabel(tg, "IPU", i) != "<p:>"){
+      tg <- tg.setLabel(tg, "IPU", i, "ipu")
+    }
+  }
+  
+  tg.write(tg, paste0(folderTurn, f))
+}
+```
 
 
 ```{r}
-# to check the file naming
+# to check file naming
 
 # names <- data.frame(matrix(nrow=0, ncol=4))
 # names(names) <- c("1", "2", "3", "4")
@@ -49,22 +98,22 @@ table(ff$worked)
 ```{r}
 # to check what phones there are and what words they come from
 
-phones <- data.frame(matrix(nrow=0, ncol=4))
-names(phones) <- c("file", "phone", "word", "wordPhon")
-for(f in 1:nrow(ff)){
-  tg <- tg.read(paste0(folderData, ff$files[f]), encoding = detectEncoding(paste0(folderData, ff$files[f])))
-  
-  for(i in 1:tg.getNumberOfIntervals(tg, "MAU")){
-    if(tg.getLabel(tg, "MAU", i) != ""){
-      phones[nrow(phones)+1,] <- c(f,
-                                   tg.getLabel(tg, "MAU", i),
-                                   tg.getLabel(tg, "ORT-MAU", tg.getIntervalIndexAtTime(tg, "ORT-MAU", as.numeric(tg.getIntervalStartTime(tg, "MAU", i))+0.000001)),
-                                   tg.getLabel(tg, "KAN-MAU", tg.getIntervalIndexAtTime(tg, "KAN-MAU", as.numeric(tg.getIntervalStartTime(tg, "MAU", i))+0.000001)))
-    }
-  }
-}
-phones <- phones %>% filter(phone!="<p:>")
-p <- aggregate(word ~ phone, phones, paste, collapse=",")
+# phones <- data.frame(matrix(nrow=0, ncol=4))
+# names(phones) <- c("file", "phone", "word", "wordPhon")
+# for(f in 1:nrow(ff)){
+#   tg <- tg.read(paste0(folderData, ff$files[f]), encoding = detectEncoding(paste0(folderData, ff$files[f])))
+#   
+#   for(i in 1:tg.getNumberOfIntervals(tg, "MAU")){
+#     if(tg.getLabel(tg, "MAU", i) != ""){
+#       phones[nrow(phones)+1,] <- c(f,
+#                                    tg.getLabel(tg, "MAU", i),
+#                                    tg.getLabel(tg, "ORT-MAU", tg.getIntervalIndexAtTime(tg, "ORT-MAU", as.numeric(tg.getIntervalStartTime(tg, "MAU", i))+0.000001)),
+#                                    tg.getLabel(tg, "KAN-MAU", tg.getIntervalIndexAtTime(tg, "KAN-MAU", as.numeric(tg.getIntervalStartTime(tg, "MAU", i))+0.000001)))
+#     }
+#   }
+# }
+# phones <- phones %>% filter(phone!="<p:>")
+# p <- aggregate(word ~ phone, phones, paste, collapse=",")
 ```
 
 
@@ -112,13 +161,13 @@ for(f in 1:nrow(ff)){
           if(tg.getIntervalStartTime(tg, "MAU", p) >= int$intOnset[nrow(int)]){ # make sure the phone interval starts and ends within the TRN interval, since they aren't perfectly aligned
             if(tg.getIntervalEndTime(tg, "MAU", p) <= int$intOffset[nrow(int)]){
               if(grepl("<", tg.getLabel(tg, "MAU", p))){
-                del <- del + as.numeric(tg.getIntervalDuration(tg, "MAU", p)) # if there are multiple "<>" intervals, we add up all of them
+                del <- as.numeric(del + as.numeric(tg.getIntervalDuration(tg, "MAU", p))) # if there are multiple "<>" intervals, we add up all of them
               }
             }
           }
         }
       }
-      int$deleteDur[nrow(int)] <- del
+      int$deleteDur[nrow(int)] <- as.numeric(del)
       if(int$label[nrow(int)] == "<nib>" | int$label[nrow(int)] == "<pseudo>" | int$label[nrow(int)] == "<usb>"){ # delete the turns that are entirely a forbidden string
         int$invalidTurn[nrow(int)] <- "yes"
       }
