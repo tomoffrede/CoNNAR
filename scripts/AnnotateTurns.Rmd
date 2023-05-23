@@ -1,5 +1,5 @@
 ---
-title: "Annotate turns"
+title: "Create IPUs, annotate turns"
 author: "Tom Offrede"
 date: "2023-05-09"
 output: html_document
@@ -14,16 +14,103 @@ library(stringr)
 library(tidyverse)
 library(rPraat)
 
-folderData <- paste0(here::here(), "/data/all/")
-folderJoint <- paste0(here::here(), "/data/joint/")
+folderData <- paste0(here::here(), "/data/corrected/")
+folderUpdated <- paste0(here::here(), "/data/updated/")
 
 files <- list.files(folderData, "TextGrid")
+files <- files[grepl("free", files)]
+
+# folderData <- paste0(here::here(), "/data/all/")
+# folderJoint <- paste0(here::here(), "/data/joint/")
+# 
+# files <- list.files(folderData, "TextGrid")
+# files <- files[grepl("free", files)]
+# 
+# ch1 <- files[grepl("ch1", files)]
+# ch2 <- files[grepl("ch2", files)]
+# 
+# ff <- data.frame(cbind(ch1, ch2)) %>% 
+#   mutate(worked = ifelse(str_split(gsub("ch1", "", ch1), fixed("_"))[[1]][[1]] == str_split(gsub("ch2", "", ch2), fixed("_"))[[1]][[1]] &
+#                            str_split(gsub("ch1", "", ch1), fixed("_"))[[1]][[2]] == str_split(gsub("ch2", "", ch2), fixed("_"))[[1]][[2]] &
+#                            str_split(gsub("ch1", "", ch1), fixed("_"))[[1]][[3]] == str_split(gsub("ch2", "", ch2), fixed("_"))[[1]][[3]] &
+#                            str_split(gsub("ch1", "", ch1), fixed("_"))[[1]][[4]] == str_split(gsub("ch2", "", ch2), fixed("_"))[[1]][[4]],
+#                          "worked!", "NO!!!"))
+# table(ff$worked)
+```
+
+# Annotate IPUs based on MAU tier annotations
+
+```{r}
+for(f in files){
+  tg <- tg.read(paste0(folderData, f), encoding = detectEncoding(paste0(folderData, f)))
+  tg <- tg.duplicateTier(tg, "MAU", newInd = Inf, newTierName = "jointMAU")
+  tg <- tg.duplicateTier(tg, "MAU", newInd = Inf, newTierName = "IPU")
+  
+  # join all consecutive intervals that are non-silent -- both in jointMAU and in IPU tiers
+  for(tier in c("jointMAU", "IPU")){
+    i <- 1
+    while(i < (tg.getNumberOfIntervals(tg, tier)-1)){
+      if(tg.getLabel(tg, tier, i) != "<p:>"){
+        if(tg.getLabel(tg, tier, i+1) != "<p:>"){
+          tg <- tg.removeIntervalRightBoundary(tg, tier, i)
+          i <- i - 1
+        }
+      }
+      i <- i + 1
+    }
+  }
+  
+  # join into one IPU the intervals that are separated by pauses shorter than 150 ms
+  for(i in 1:(tg.getNumberOfIntervals(tg, "IPU")-2)){
+    if(i > (tg.getNumberOfIntervals(tg, "IPU")-2)){
+      next
+    }
+    if(tg.getLabel(tg, "IPU", i) != "<p:>"){ # if the current interval is not silent
+      if(tg.getLabel(tg,"IPU", i+1) == "<p:>"){ # if the next interval is silent
+        if(tg.getIntervalDuration(tg, "IPU", i+1) < 0.15){ # if the next interval is shorter than 150 ms
+          if(tg.getLabel(tg, "IPU", i+2) != "<p:>"){ # if the subsequent (after the next) interval is also not silent
+            tg <- tg.removeIntervalBothBoundaries(tg, "IPU", i+1) # remove both boundaries of the short pause interval
+          }
+        }
+      }
+    }
+  }
+  
+  # relabel the intervals
+  for(i in 1:tg.getNumberOfIntervals(tg, "IPU")){
+    if(tg.getLabel(tg, "IPU", i) != "<p:>"){
+      tg <- tg.setLabel(tg, "IPU", i, "ipu")
+    }
+  }
+  
+  # annotate within-IPU pauses
+  tg <- tg.insertNewIntervalTier(tg, Inf, "within-IPU-pauses")
+  for(i in 1:tg.getNumberOfIntervals(tg, "MAU")){
+    if(tg.getLabel(tg, "MAU", i) == "<p:>"){
+      if(tg.getLabel(tg, "IPU", tg.getIntervalIndexAtTime(tg, "IPU", tg.getIntervalStartTime(tg, "MAU", i))) == "ipu"){
+        tg <- tg.insertInterval(tg, "within-IPU-pauses", tg.getIntervalStartTime(tg, "MAU", i), tg.getIntervalEndTime(tg, "MAU", i), tg.getLabel(tg, "MAU", i))
+      }
+    }
+  }
+  
+  tg.write(tg, paste0(folderUpdated, f))
+}
+```
+
+# Annotate turns based on IPUs' timing
+
+## Script that just annotates each speaker's turns in their own textgrid
+
+```{r}
+folderUpdated2 <- paste0(here::here(), "/data/updated2/")
+
+files <- list.files(folderUpdated, "TextGrid")
 files <- files[grepl("free", files)]
 
 ch1 <- files[grepl("ch1", files)]
 ch2 <- files[grepl("ch2", files)]
 
-ff <- data.frame(cbind(ch1, ch2)) %>% 
+ff <- data.frame(cbind(ch1, ch2)) %>%
   mutate(worked = ifelse(str_split(gsub("ch1", "", ch1), fixed("_"))[[1]][[1]] == str_split(gsub("ch2", "", ch2), fixed("_"))[[1]][[1]] &
                            str_split(gsub("ch1", "", ch1), fixed("_"))[[1]][[2]] == str_split(gsub("ch2", "", ch2), fixed("_"))[[1]][[2]] &
                            str_split(gsub("ch1", "", ch1), fixed("_"))[[1]][[3]] == str_split(gsub("ch2", "", ch2), fixed("_"))[[1]][[3]] &
@@ -32,82 +119,33 @@ ff <- data.frame(cbind(ch1, ch2)) %>%
 table(ff$worked)
 ```
 
-
 ```{r}
 for(i in 1:nrow(ff)){
   # read the two speakers' textgrids
-  tg1 <- tg.read(paste0(folderData, ff$ch1[i]), encoding=detectEncoding(paste0(folderData, ff$ch1[i])))
-  tg2 <- tg.read(paste0(folderData, ff$ch2[i]), encoding=detectEncoding(paste0(folderData, ff$ch2[i])))
-  
-  # make sure that all the intervals containing speech are connected into one interval (i.e., there are no consecutive intervals where both are speech; if there is a division between intervals, it should be because one is speech and one is silence)
-  tg <- list(tg1, tg2) # make a list of the two textgrids so we can use a single for loop for both
-  for(t in 1:length(tg)){
-    for(n in 1:(tg.getNumberOfIntervals(tg[[t]], "TRN")-1)){
-      if(n > (tg.getNumberOfIntervals(tg[[t]], "TRN")-1)){ # if the number of intervals in the tier changed and n is now higher than the last current interval number, skip this number
-        next
-      }
-      if(tg.getLabel(tg[[t]], "TRN", n) != ""){ # both the current and the following interval are non-silence
-        if(tg.getLabel(tg[[t]], "TRN", n+1) != ""){
-          tg[[t]] <- tg.removeIntervalRightBoundary(tg[[t]], "TRN", n)
-        }
-      }
-    }
-  }
-  for(t in 1:length(tg)){ # repeat the loop above to make sure none of the intervals were left behind (since the number of intervals changes as the loop is executed, it could be that some interval gets unchecked)
-    for(n in 1:(tg.getNumberOfIntervals(tg[[t]], "TRN")-1)){
-      if(n > (tg.getNumberOfIntervals(tg[[t]], "TRN")-1)){
-        next
-      }
-      if(tg.getLabel(tg[[t]], "TRN", n) != ""){
-        if(tg.getLabel(tg[[t]], "TRN", n+1) != ""){
-          tg[[t]] <- tg.removeIntervalRightBoundary(tg[[t]], "TRN", n)
-        }
-      }
-    }
-  }
-  tg1 <- tg[[1]]
-  tg2 <- tg[[2]]
-  
-  # create a new textgrid that will contain the information of both tg1 and tg2
-  tgT <- tg.createNewTextGrid(tMin = as.numeric(tg.getStartTime(tg1)), tMax = as.numeric(tg.getEndTime(tg1)))
-  
-  tgT <- tg.insertNewIntervalTier(tgT, newTierName ="TRN-ch1")
-  for(n in 1:tg.getNumberOfIntervals(tg1, "TRN")){
-    tgT <- tg.insertInterval(tgT,
-                             "TRN-ch1",
-                             tStart=tg.getIntervalStartTime(tg1, "TRN", n),
-                             tEnd=tg.getIntervalEndTime(tg1, "TRN", n),
-                             label=tg.getLabel(tg1, "TRN", n))
-  }
-  
-  tgT <- tg.insertNewIntervalTier(tgT, newTierName ="TRN-ch2")
-  for(n in 1:tg.getNumberOfIntervals(tg2, "TRN")){
-    tgT <- tg.insertInterval(tgT,
-                             "TRN-ch2",
-                             tStart=tg.getIntervalStartTime(tg2, "TRN", n),
-                             tEnd=tg.getIntervalEndTime(tg2, "TRN", n),
-                             label=tg.getLabel(tg2, "TRN", n))
-  }
+  tg1 <- tg.read(paste0(folderUpdated, ff$ch1[i]), encoding=detectEncoding(paste0(folderUpdated, ff$ch1[i])))
+  tg2 <- tg.read(paste0(folderUpdated, ff$ch2[i]), encoding=detectEncoding(paste0(folderUpdated, ff$ch2[i])))
+  tg <- list(tg1, tg2)
   
   # create dataset with all intervals and labels
-  
   int <- data.frame(matrix(nrow=0, ncol=7))
   names(int) <- c("speaker", "label", "onset", "offset", "duration", "interval", "turn")
   
-  for(tier in c("TRN-ch1", "TRN-ch2")){
-    for(n in 1:tg.getNumberOfIntervals(tgT, tier)){
-      if(tg.getLabel(tgT, tier, n) != ""){
-        int[nrow(int)+1,] <- c(gsub("TRN-", "", tier),
-                               tg.getLabel(tgT, tier, n),
-                               as.numeric(tg.getIntervalStartTime(tgT, tier, n)),
-                               as.numeric(tg.getIntervalEndTime(tgT, tier, n)),
-                               as.numeric(tg.getIntervalDuration(tgT, tier, n)),
+  for(t in 1:length(tg)){
+    for(n in 1:tg.getNumberOfIntervals(tg[[t]], "IPU")){
+      if(tg.getLabel(tg[[t]], tier, n) != "<p:>"){
+        int[nrow(int)+1,] <- c(ifelse(t == 1, "ch1", "ch2"),
+                               tg.getLabel(tg[[t]], tier, n),
+                               as.numeric(tg.getIntervalStartTime(tg[[t]], tier, n)),
+                               as.numeric(tg.getIntervalEndTime(tg[[t]], tier, n)),
+                               as.numeric(tg.getIntervalDuration(tg[[t]], tier, n)),
                                n,
-                               0
-        )
+                               0)
       }
     }
   }
+  
+  tg1 <- tg[[1]]
+  tg2 <- tg[[2]]
   
   int <- int %>% 
     mutate_at(c("onset", "offset", "duration", "turn"), as.numeric) %>% 
@@ -178,16 +216,180 @@ for(i in 1:nrow(ff)){
     ungroup() %>% 
     filter(!duplicated(paste0(speaker, turn)))
   
-  
-  tgT <- tg.insertNewIntervalTier(tgT, newInd = Inf, "turn-ch1")
-  tgT <- tg.insertNewIntervalTier(tgT, newInd = Inf, "turn-ch2")
+  tg1 <- tg.insertNewIntervalTier(tg1, newInd = Inf, "turns")
+  tg2 <- tg.insertNewIntervalTier(tg2, newInd = Inf, "turns")
   
   for(r in 1:nrow(int)){
-    tgT <- tg.insertInterval(tgT, paste0("turn-", int$speaker[r]), int$onsetTurn[r], int$offsetTurn[r], paste0("turn", int$turn[r]))
+    if(int$speaker[r] == "ch1"){
+      tg1 <- tg.insertInterval(tg1, "turns", int$onsetTurn[r], int$offsetTurn[r], paste0("turn", int$turn[r]))
+    }
+    if(int$speaker[r] == "ch2"){
+      tg2 <- tg.insertInterval(tg2, "turns", int$onsetTurn[r], int$offsetTurn[r], paste0("turn", int$turn[r]))
+    }
   }
   
-  tg.write(tgT, paste0(folderJoint, gsub("ch1", "TRN", ff$ch1[i])))
+  tg.write(tg1, paste0(folderUpdated2, ff$ch1[i]))
+  tg.write(tg2, paste0(folderUpdated2, ff$ch2[i]))
 }
 ```
+
+
+<!-- ## Original script that creates one textgrid with both speakers' turns -->
+<!-- ```{r} -->
+<!-- for(i in 1:nrow(ff)){ -->
+<!--   # read the two speakers' textgrids -->
+<!--   tg1 <- tg.read(paste0(folderData, ff$ch1[i]), encoding=detectEncoding(paste0(folderData, ff$ch1[i]))) -->
+<!--   tg2 <- tg.read(paste0(folderData, ff$ch2[i]), encoding=detectEncoding(paste0(folderData, ff$ch2[i]))) -->
+
+<!--   # make sure that all the intervals containing speech are connected into one interval (i.e., there are no consecutive intervals where both are speech; if there is a division between intervals, it should be because one is speech and one is silence) -->
+<!--   tg <- list(tg1, tg2) # make a list of the two textgrids so we can use a single for loop for both -->
+<!--   for(t in 1:length(tg)){ -->
+<!--     for(n in 1:(tg.getNumberOfIntervals(tg[[t]], "TRN")-1)){ -->
+<!--       if(n > (tg.getNumberOfIntervals(tg[[t]], "TRN")-1)){ # if the number of intervals in the tier changed and n is now higher than the last current interval number, skip this number -->
+<!--         next -->
+<!--       } -->
+<!--       if(tg.getLabel(tg[[t]], "TRN", n) != ""){ # both the current and the following interval are non-silence -->
+<!--         if(tg.getLabel(tg[[t]], "TRN", n+1) != ""){ -->
+<!--           tg[[t]] <- tg.removeIntervalRightBoundary(tg[[t]], "TRN", n) -->
+<!--         } -->
+<!--       } -->
+<!--     } -->
+<!--   } -->
+<!--   for(t in 1:length(tg)){ # repeat the loop above to make sure none of the intervals were left behind (since the number of intervals changes as the loop is executed, it could be that some interval gets unchecked) -->
+<!--     for(n in 1:(tg.getNumberOfIntervals(tg[[t]], "TRN")-1)){ -->
+<!--       if(n > (tg.getNumberOfIntervals(tg[[t]], "TRN")-1)){ -->
+<!--         next -->
+<!--       } -->
+<!--       if(tg.getLabel(tg[[t]], "TRN", n) != ""){ -->
+<!--         if(tg.getLabel(tg[[t]], "TRN", n+1) != ""){ -->
+<!--           tg[[t]] <- tg.removeIntervalRightBoundary(tg[[t]], "TRN", n) -->
+<!--         } -->
+<!--       } -->
+<!--     } -->
+<!--   } -->
+<!--   tg1 <- tg[[1]] -->
+<!--   tg2 <- tg[[2]] -->
+
+<!--   # create a new textgrid that will contain the information of both tg1 and tg2 -->
+<!--   tgT <- tg.createNewTextGrid(tMin = as.numeric(tg.getStartTime(tg1)), tMax = as.numeric(tg.getEndTime(tg1))) -->
+
+<!--   tgT <- tg.insertNewIntervalTier(tgT, newTierName ="TRN-ch1") -->
+<!--   for(n in 1:tg.getNumberOfIntervals(tg1, "TRN")){ -->
+<!--     tgT <- tg.insertInterval(tgT, -->
+<!--                              "TRN-ch1", -->
+<!--                              tStart=tg.getIntervalStartTime(tg1, "TRN", n), -->
+<!--                              tEnd=tg.getIntervalEndTime(tg1, "TRN", n), -->
+<!--                              label=tg.getLabel(tg1, "TRN", n)) -->
+<!--   } -->
+
+<!--   tgT <- tg.insertNewIntervalTier(tgT, newTierName ="TRN-ch2") -->
+<!--   for(n in 1:tg.getNumberOfIntervals(tg2, "TRN")){ -->
+<!--     tgT <- tg.insertInterval(tgT, -->
+<!--                              "TRN-ch2", -->
+<!--                              tStart=tg.getIntervalStartTime(tg2, "TRN", n), -->
+<!--                              tEnd=tg.getIntervalEndTime(tg2, "TRN", n), -->
+<!--                              label=tg.getLabel(tg2, "TRN", n)) -->
+<!--   } -->
+
+<!--   # create dataset with all intervals and labels -->
+
+<!--   int <- data.frame(matrix(nrow=0, ncol=7)) -->
+<!--   names(int) <- c("speaker", "label", "onset", "offset", "duration", "interval", "turn") -->
+
+<!--   for(tier in c("TRN-ch1", "TRN-ch2")){ -->
+<!--     for(n in 1:tg.getNumberOfIntervals(tgT, tier)){ -->
+<!--       if(tg.getLabel(tgT, tier, n) != ""){ -->
+<!--         int[nrow(int)+1,] <- c(gsub("TRN-", "", tier), -->
+<!--                                tg.getLabel(tgT, tier, n), -->
+<!--                                as.numeric(tg.getIntervalStartTime(tgT, tier, n)), -->
+<!--                                as.numeric(tg.getIntervalEndTime(tgT, tier, n)), -->
+<!--                                as.numeric(tg.getIntervalDuration(tgT, tier, n)), -->
+<!--                                n, -->
+<!--                                0 -->
+<!--         ) -->
+<!--       } -->
+<!--     } -->
+<!--   } -->
+
+<!--   int <- int %>%  -->
+<!--     mutate_at(c("onset", "offset", "duration", "turn"), as.numeric) %>%  -->
+<!--     arrange(onset) -->
+
+<!--   for(r in 1:nrow(int)){ -->
+<!--     lagCount <- 0 -->
+<!--     while(r - lagCount > 0 && !is.na(lag(int$speaker, n = lagCount)[r]) && lag(int$speaker, n=lagCount)[r] == int$speaker[r]){ -->
+<!--       lagCount <- lagCount + 1 -->
+<!--     } -->
+<!--     int$previousSp[r] <- lag(int$speaker, lagCount)[r] -->
+<!--     int$previousOnset[r] <- lag(int$onset, lagCount)[r] -->
+<!--     int$previousOffset[r] <- lag(int$offset, lagCount)[r] -->
+<!--     int$previousDur[r] <- lag(int$duration, lagCount)[r] -->
+
+<!--     leadCount <- 0 -->
+<!--     while(!is.na(lead(int$speaker, n = leadCount)[r]) && lead(int$speaker, n=leadCount)[r] == int$speaker[r]){ -->
+<!--       leadCount <- leadCount + 1 -->
+<!--     } -->
+<!--     int$nextSp[r] <- lead(int$speaker, leadCount)[r] -->
+<!--     int$nextOnset[r] <- lead(int$onset, leadCount)[r] -->
+<!--     int$nextOffset[r] <- lead(int$offset, leadCount)[r] -->
+<!--     int$nextDur[r] <- lead(int$duration, leadCount)[r] -->
+<!--   } -->
+
+<!--   int <- int %>%  -->
+<!--     mutate(distanceOnsetsP = onset - previousOnset, -->
+<!--            distanceOffsetsP = offset - previousOffset, -->
+<!--            distanceOnsetsN = onset - nextOnset, -->
+<!--            distanceOffsetsN = offset - nextOffset) %>%  -->
+<!--     mutate(turn = case_when( -->
+<!--       onset > previousOnset & offset < previousOffset ~ as.numeric(NA), -->
+<!--       abs(distanceOnsetsP) <= 0.12 & duration < previousDur ~ as.numeric(NA), -->
+<!--       abs(distanceOffsetsP) <= 0.12 & duration < previousDur ~ as.numeric(NA), -->
+<!--       abs(distanceOnsetsN) <= 0.12 & duration < nextDur ~ as.numeric(NA), -->
+<!--       abs(distanceOffsetsN) <= 0.12 & duration < nextDur ~ as.numeric(NA), -->
+<!--       TRUE ~ as.numeric(turn) -->
+<!--     )) %>%  -->
+<!--     filter(!is.na(turn)) # now delete all rows containing a row to ignore -->
+
+<!--   turn1 <- 0 -->
+<!--   turn2 <- 0 -->
+
+<!--   for(r in 1:nrow(int)){ -->
+<!--     if(r == 1){ # for first row of `int`, start at turn 1 -->
+<!--       turn1 <- ifelse(int$speaker[r] == "ch1", turn1 + 1, turn1) -->
+<!--       turn2 <- ifelse(int$speaker[r] == "ch2", turn2 + 1, turn2) -->
+<!--       int$turn[r] <- ifelse(int$speaker[r] == "ch1", turn1, turn2) -->
+<!--     } -->
+
+<!--     if(r > 1){ # from second row of `int`: -->
+<!--       if(int$speaker[r] != int$speaker[r-1]){ # if the current speaker is different from the previous row: -->
+<!--         turn1 <- ifelse(int$speaker[r] == "ch1", turn1 + 1, turn1) # add a turn count -->
+<!--         turn2 <- ifelse(int$speaker[r] == "ch2", turn2 + 1, turn2) -->
+<!--         int$turn[r] <- ifelse(int$speaker[r] == "ch1", turn1, turn2) # and save the turn number -->
+<!--       } -->
+
+<!--       if(int$speaker[r] == int$speaker[r-1]){ # if the current speaker is the same as in the previous row: -->
+<!--         int$turn[r] <- ifelse(int$speaker[r] == "ch1", turn1, turn2) # just save the current turn number -->
+<!--       } -->
+<!--     } -->
+<!--   } -->
+
+<!--   int <- int %>%  -->
+<!--     group_by(speaker, turn) %>%  -->
+<!--     mutate(onsetTurn = min(onset), -->
+<!--            offsetTurn = max(offset)) %>%  -->
+<!--     ungroup() %>%  -->
+<!--     filter(!duplicated(paste0(speaker, turn))) -->
+
+
+<!--   tgT <- tg.insertNewIntervalTier(tgT, newInd = Inf, "turn-ch1") -->
+<!--   tgT <- tg.insertNewIntervalTier(tgT, newInd = Inf, "turn-ch2") -->
+
+<!--   for(r in 1:nrow(int)){ -->
+<!--     tgT <- tg.insertInterval(tgT, paste0("turn-", int$speaker[r]), int$onsetTurn[r], int$offsetTurn[r], paste0("turn", int$turn[r])) -->
+<!--   } -->
+
+<!--   tg.write(tgT, paste0(folderUpdated2, gsub("ch1", "TRN", ff$ch1[i]))) -->
+<!-- } -->
+<!-- ``` -->
 
 
