@@ -108,23 +108,32 @@ while ifile <= numberOfFiles
     	To Intensity... 100 0.0
    
 
+# if the textgrid ends in ch1, the relevant interval with turn annotaitons is 12. if ch2, 18.
+speaker$ = right$: name$, 3
+if speaker$ == "ch1"
+   tierTurns = 12
+endif
+if speaker$ == "ch2"
+   tierTurns = 18
+endif
+
 	select TextGrid 'name$'
-    	nInterv = Get number of intervals... 1
+    	nInterv = Get number of intervals... tierTurns
    	
     	for j from 1 to 'nInterv'	
 
 		select TextGrid 'name$'
-        	lab$ = Get label of interval... 1 'j'
+        	lab$ = Get label of interval... tierTurns 'j'
 
-		if lab$ == "ipu"
+		if lab$ == "turn([1-9]|[1-9][0-9]|[1-9][0-9][0-9])"
 			#	printline vide
-		elsif lab$ == "<p:>"
+		elsif lab$ == ""
 			#	printline unprocess U
 		else
 		
 			#---- process voiced interval
-	    		onsetV  = Get starting point... 1 'j'			       	    
-     	    	offsetV = Get end point... 1 'j'
+	    		onsetV  = Get starting point... tierTurns 'j'			       	    
+     	    	offsetV = Get end point... tierTurns 'j'
 
 			#---- find middle of the vowel
        		midTps = ('offsetV' + 'onsetV') / 2
