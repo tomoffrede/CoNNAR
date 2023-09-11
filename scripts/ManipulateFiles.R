@@ -37,6 +37,8 @@ for(f in t){
 
 # Copy files from their individual folder into a folder with all speakers
 
+## Option 1
+
 for(d in dyads){
   folderC <- paste0(folder, d, "/")
   # files <- list.files(folderC, "^[A-Z]{3}-(D|L)[0-9]\\.TextGrid$")
@@ -45,6 +47,17 @@ for(d in dyads){
   for(f in files){
     file <- paste0(folderC, f, "/")
     file.copy(file, folder2, overwrite = TRUE)
+  }
+}
+
+## Option 2
+
+files <- list.files(folder, recursive=TRUE)
+
+for(file in files){
+  filename <- stringr::str_split(file, fixed("/"))[[1]][[2]]
+  if(grepl("\\.wav", file)){
+    file.copy(from= paste0(folder, file), to=paste0(folder2, filename))
   }
 }
 
@@ -62,9 +75,19 @@ for(d in dyads){
   }
 }
 
+# Delete files based on their name
+
+files <- list.files(folder, recursive=TRUE)
+
+for(file in files[!grepl("RData", files)]){
+  if(!grepl("free", file)){
+    file.remove(paste0(folder, file))
+  }
+}
+
 # Rename files
 
-# Option 1
+## Option 1
 
 files <- list.files(folder, "OverlapSp.TextGrid")
 # files <- files[!grepl("OG", files)]
@@ -75,7 +98,7 @@ for(f in files){
               to = paste0(folder, newName))
 }
 
-# Option 2
+## Option 2
 
 for(d in dyads){
   folderC <- paste0(folder, d, "/")

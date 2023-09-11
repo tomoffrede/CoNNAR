@@ -1,0 +1,14 @@
+---
+title: "Analysis CoNNAR - f0 and articulation rate"
+author: "Tom Offrede"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# f0 mean
+
+Run analysis per participant, apply Bonferroni correction (0.05/number of analysis)?
+Add interlocutor as interacting fixed effect
