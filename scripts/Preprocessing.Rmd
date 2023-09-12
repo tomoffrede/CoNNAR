@@ -216,6 +216,9 @@ dat <- dat %>%
          f0medDiff = abs(f0med - prevf0med),
          f0IQRDiff = abs(f0IQR - prevf0IQR),
          f0sdDiff = abs(f0sd - prevf0sd))
+
+# save dataset!
+save(dat, file=paste0(folderGen, "speechData.RData"))
 ```
 
 # Plot the differences

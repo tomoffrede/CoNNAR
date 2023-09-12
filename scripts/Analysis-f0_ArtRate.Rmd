@@ -8,7 +8,85 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+```{r include=FALSE}
+library(tidyverse)
+library(lmerTest)
+
+folder <- paste0(here::here(), "/data/")
+load(paste0(folder, "speechData.RData"))
+dat <- dat |> 
+  mutate(prevf0meanC = prevf0mean - mean(prevf0mean, na.rm=TRUE),
+         prevf0medC = prevf0med - mean(prevf0med, na.rm=TRUE),
+         prevf0IQRC = prevf0IQR - mean(prevf0IQR, na.rm=TRUE),
+         prevf0sdC = prevf0sd - mean(prevf0sd, na.rm=TRUE),
+         prevARc = prevAR - mean(prevAR, na.rm=TRUE),
+         confederateType = ifelse(grepl("L2", confederate), "L2", "L1"))
+```
+
+# Articulation rate
+
+L2 confederates did indeed speak slower than L1 confederates. The B2 confederate especially.
+
+```{r}
+ggplot(dat |> filter(speaker=="confederate"), aes(confederateType, turnAR))+
+  geom_boxplot()
+
+summary(lmer(turnAR ~ confederate + (1|file), dat |> filter(speaker=="confederate")))
+```
+
+The model below shows that the participants don't converge, regardless of who the confederate is.
+
+```{r}
+summary(m1 <- lmer(turnAR ~ prevARc : turn + (1|file), dat |> filter(speaker=="participant")))
+summary(m2 <- lmer(turnAR ~ prevARc : turn : confederateType + (1|file), dat |> filter(speaker=="participant")))
+anova(m1, m2)
+```
+
+The model below shows that they also don't speak slower with the L2 confederates.
+
+```{r}
+summary(m2 <- lmer(turnAR ~ confederateType + (1|file), dat |> filter(speaker=="participant")))
+```
+
 # f0 mean
 
-Run analysis per participant, apply Bonferroni correction (0.05/number of analysis)?
-Add interlocutor as interacting fixed effect
+Comparing a model with and without `confederateType` as a fixed effect, we find that the model *without* it is better. So people seem to converge similarly on f0 mean to both types of confederates.
+
+```{r}
+summary(m1 <- lmer(f0mean ~ prevf0meanC : turn + (1|file), dat |> filter(speaker == "participant")))
+summary(m2 <- lmer(f0mean ~ prevf0meanC : turn : confederateType + (1|file), dat |> filter(speaker == "participant")))
+anova(m1, m2)
+```
+
+# f0 median
+
+The same is true for f0 median as it is for f0 mean.
+
+```{r}
+summary(m1 <- lmer(f0med ~ prevf0medC : turn + (1|file), dat |> filter(speaker == "participant")))
+summary(m2 <- lmer(f0med ~ prevf0medC : turn : confederateType + (1|file), dat |> filter(speaker == "participant")))
+anova(m1, m2)
+```
+
+# f0 SD
+
+The participants don't seem to converge on f0 SD at all.
+
+```{r}
+summary(m1 <- lmer(f0sd ~ prevf0sdC : turn + (1|file), dat |> filter(speaker == "participant")))
+summary(m2 <- lmer(f0sd ~ prevf0sdC : turn : confederateType + (1|file), dat |> filter(speaker == "participant")))
+anova(m1, m2)
+```
+
+# f0 IQR
+
+The participants also don't seem to converge on f0 IQR.
+
+```{r}
+summary(m1 <- lmer(f0IQR ~ prevf0IQRC : turn + (1|file), dat |> filter(speaker == "participant")))
+summary(m2 <- lmer(f0IQR ~ prevf0IQRC : turn : confederateType + (1|file), dat |> filter(speaker == "participant")))
+anova(m1, m2)
+```
+
+
+
