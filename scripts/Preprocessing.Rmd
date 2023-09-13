@@ -25,7 +25,7 @@ folderData <- paste0("C:/Users/offredet/Documents/1HU/CoNNAR/CoNNAR/data/all/")
 filesTG <- list.files(folderData, "TextGrid")
 filesTXT <- list.files(folderData, "\\.txt")
 
-ff <- data.frame(filesTG, filesTXT) %>%
+ff <- data.frame(filesTG, filesTXT) |>
   mutate(worked = ifelse(gsub(".TextGrid", "", filesTG) == gsub(".txt", "", filesTXT), # to make sure the files are matching
                          "worked!", "NO!!!!!"))
 table(ff$worked)
@@ -92,7 +92,7 @@ for(f in 1:nrow(ff)){
   }
 }
 
-int <- int %>% 
+int <- int %>% # for some reason the `|>` pipe is giving an error in this chunk, so using `%>%`
   filter(turn != "") %>% 
   group_by(file) %>% 
   mutate(IPU = 1:n()) %>% 
@@ -112,7 +112,7 @@ for(f in 1:nrow(ff)){
     mutate(meanZ = (f0mean - mean(f0mean, na.rm=TRUE)) / sd(f0mean, na.rm=TRUE),
            medZ = (f0med - mean(f0med, na.rm=TRUE)) / sd(f0med, na.rm=TRUE),
            sdZ = (f0sd - mean(f0sd, na.rm=TRUE)) / sd(f0sd, na.rm=TRUE),
-           iqrZ = (f0IQR - mean(f0IQR, na.rm=TRUE)) / sd(f0IQR, na.rm=TRUE)) %>% 
+           iqrZ = (f0IQR - mean(f0IQR, na.rm=TRUE)) / sd(f0IQR, na.rm=TRUE)) |> 
     mutate(f0mean = ifelse(abs(meanZ) > 2.5, NA, f0mean),
            f0med = ifelse(abs(medZ) > 2.5, NA, f0med),
            f0sd = ifelse(abs(sdZ) > 2.5, NA, f0sd),
@@ -133,18 +133,36 @@ for(f in 1:nrow(ff)){
   }
 }
 
-
-save(int, file=paste0(folderGen, "IPU-ArticulationRate.RData"))
+# save(int, file=paste0(folderGen, "IPU-ArticulationRate.RData"))
 ```
+
+# Add confederates' accent ratings
+
+```{r}
+int <- int |> 
+  mutate(accentRating = case_when(
+    grepl("c01|c03|c05|c07", file) ~ 0,
+    grepl("c02", file) ~ 2.35,
+    grepl("c04", file) ~ 2.57,
+    grepl("c06", file) ~ 5.44,
+    grepl("c08", file) ~ 3.26
+  ),
+  confederate = case_when(
+    grepl("c02", file) ~ "C1-a",
+    grepl("c04", file) ~ "C1-b",
+    .default = as.character(confederate)
+  ))
+```
+
 
 # Annotate the articulation rate of interlocutor's previous turn in the dataset
 
 ```{r}
-dat <- int %>% 
-  group_by(file, turn) %>% 
-  filter(!duplicated(turn)) %>% 
-  ungroup() %>% 
-  select(-c(intervalIPU, label, ipuOnset, ipuOffset, ipuDur, deleteDur, IPU, artRate)) %>% 
+dat <- int |> 
+  group_by(file, turn) |> 
+  filter(!duplicated(turn)) |> 
+  ungroup() |> 
+  select(-c(intervalIPU, label, ipuOnset, ipuOffset, ipuDur, deleteDur, IPU, artRate)) |> 
   mutate(firstSp = NA)
 
 # determine who is the first speaker in each dyad
@@ -152,12 +170,12 @@ for(f in unique(dat$dyad)){
   dat$firstSp[dat$dyad==f] <- unique(as.character(dat$speaker[dat$dyad==f & dat$turnOnset == min(dat$turnOnset[dat$dyad==f])]))
 }
 
-dat <- dat %>% 
-  group_by(file) %>% 
-  mutate_at(c("turn", "f0mean", "f0med", "f0IQR", "f0sd"), as.numeric) %>% 
-  mutate(prevTurn = ifelse(speaker == firstSp, turn-1, turn)) %>%
+dat <- dat |> 
+  group_by(file) |> 
+  mutate_at(c("turn", "f0mean", "f0med", "f0IQR", "f0sd"), as.numeric) |> 
+  mutate(prevTurn = ifelse(speaker == firstSp, turn-1, turn)) |>
   mutate(prevTurn = ifelse(speaker == firstSp & turn == 1, NA, prevTurn),
-         prevAR = NA, prevf0mean = NA, prevf0med = NA, prevf0IQR = NA, prevf0sd = NA) %>%
+         prevAR = NA, prevf0mean = NA, prevf0med = NA, prevf0IQR = NA, prevf0sd = NA) |>
   ungroup()
 
 for(i in 1:nrow(dat)){
@@ -210,16 +228,28 @@ for(i in 1:nrow(dat)){
 # Calculate difference between the interlocutors' values
 
 ```{r}
-dat <- dat %>% 
+dat <- dat |> 
   mutate(artRateDiff = abs(turnAR - prevAR),
          f0meanDiff = abs(f0mean - prevf0mean),
          f0medDiff = abs(f0med - prevf0med),
          f0IQRDiff = abs(f0IQR - prevf0IQR),
          f0sdDiff = abs(f0sd - prevf0sd))
+```
 
-# save dataset!
+# Fix format of variables (factor, numeric etc)
+
+```{r}
+dat <- dat |> 
+  mutate_at(c("file", "dyad", "speaker", "confederate"), as.factor)
+```
+
+
+# save dataset
+
+```{r}
 save(dat, file=paste0(folderGen, "speechData.RData"))
 ```
+
 
 # Plot the differences
 
@@ -290,6 +320,6 @@ ggplot(dat, aes(f0sdDiff, turn))+
 #     }
 #   }
 # }
-# phones <- phones %>% filter(phone!="<p:>")
+# phones <- phones |> filter(phone!="<p:>")
 # p <- aggregate(word ~ phone, phones, paste, collapse=",")
 ```
