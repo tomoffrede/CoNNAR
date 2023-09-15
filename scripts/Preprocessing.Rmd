@@ -31,7 +31,7 @@ ff <- data.frame(filesTG, filesTXT) |>
 table(ff$worked)
 ```
 
-# Get dataset with IPUs, turns, articulation rate, and f0
+Get dataset with IPUs, turns, articulation rate, and f0
 
 ```{r}
 int <- data.frame(matrix(nrow=0, ncol=16))
@@ -134,9 +134,10 @@ for(f in 1:nrow(ff)){
 }
 
 # save(int, file=paste0(folderGen, "IPU-ArticulationRate.RData"))
+SAVE <- int
 ```
 
-# Add confederates' accent ratings
+Add confederates' accent ratings
 
 ```{r}
 int <- int |> 
@@ -154,8 +155,23 @@ int <- int |>
   ))
 ```
 
+Rename and adjuts variables
 
-# Annotate the articulation rate of interlocutor's previous turn in the dataset
+```{r}
+int <- int |> 
+  rename(role = speaker) |> 
+  mutate(speaker = ifelse(role=="participant", substr(file, 1, 3), substr(file, 4, 6)),
+         interlocutor = ifelse(role=="confederate", substr(file, 1, 3), substr(file, 4, 6))) |> 
+  mutate_at(c("turn", "f0mean", "f0med", "f0IQR", "f0sd"), as.numeric) |>
+  group_by(speaker) |> 
+  mutate(f0meanz = (f0mean - mean(f0mean, na.rm=TRUE)) / sd(f0mean, na.rm=TRUE), # z score f0 measures because the dyads were often mixed-sex
+         f0medz = (f0med - mean(f0med, na.rm=TRUE)) / sd(f0med, na.rm=TRUE),
+         f0sdz = (f0sd - mean(f0sd, na.rm=TRUE)) / sd(f0sd, na.rm=TRUE),
+         f0IQRz = (f0IQR - mean(f0IQR, na.rm=TRUE)) / sd(f0IQR, na.rm=TRUE)
+  )
+```
+
+Annotate the articulation rate and f0 of interlocutor's previous turn in the dataset
 
 ```{r}
 dat <- int |> 
@@ -172,7 +188,7 @@ for(f in unique(dat$dyad)){
 
 dat <- dat |> 
   group_by(file) |> 
-  mutate_at(c("turn", "f0mean", "f0med", "f0IQR", "f0sd"), as.numeric) |> 
+  mutate_at(c("turn", "f0meanz", "f0medz", "f0IQRz", "f0sdz"), as.numeric) |> 
   mutate(prevTurn = ifelse(speaker == firstSp, turn-1, turn)) |>
   mutate(prevTurn = ifelse(speaker == firstSp & turn == 1, NA, prevTurn),
          prevAR = NA, prevf0mean = NA, prevf0med = NA, prevf0IQR = NA, prevf0sd = NA) |>
@@ -180,20 +196,20 @@ dat <- dat |>
 
 for(i in 1:nrow(dat)){
   prevAR <- as.numeric(dat$turnAR[dat$dyad == dat$dyad[i] &
-                         dat$speaker != dat$speaker[i] &
-                         dat$turn == dat$prevTurn[i]])
-  prevf0mean <- as.numeric(dat$f0mean[dat$dyad == dat$dyad[i] &
-                         dat$speaker != dat$speaker[i] &
-                         dat$turn == dat$prevTurn[i]])
-  prevf0med <- as.numeric(dat$f0med[dat$dyad == dat$dyad[i] &
-                         dat$speaker != dat$speaker[i] &
-                         dat$turn == dat$prevTurn[i]])
-  prevf0IQR <- as.numeric(dat$f0IQR[dat$dyad == dat$dyad[i] &
-                         dat$speaker != dat$speaker[i] &
-                         dat$turn == dat$prevTurn[i]])
-  prevf0sd <- as.numeric(dat$f0sd[dat$dyad == dat$dyad[i] &
-                         dat$speaker != dat$speaker[i] &
-                         dat$turn == dat$prevTurn[i]])
+                                    dat$speaker != dat$speaker[i] &
+                                    dat$turn == dat$prevTurn[i]])
+  prevf0mean <- as.numeric(dat$f0meanz[dat$dyad == dat$dyad[i] &
+                                         dat$speaker != dat$speaker[i] &
+                                         dat$turn == dat$prevTurn[i]])
+  prevf0med <- as.numeric(dat$f0medz[dat$dyad == dat$dyad[i] &
+                                       dat$speaker != dat$speaker[i] &
+                                       dat$turn == dat$prevTurn[i]])
+  prevf0IQR <- as.numeric(dat$f0IQRz[dat$dyad == dat$dyad[i] &
+                                       dat$speaker != dat$speaker[i] &
+                                       dat$turn == dat$prevTurn[i]])
+  prevf0sd <- as.numeric(dat$f0sdz[dat$dyad == dat$dyad[i] &
+                                     dat$speaker != dat$speaker[i] &
+                                     dat$turn == dat$prevTurn[i]])
   
   if(!purrr::is_empty(prevAR)){
     if(!any(is.na(prevAR))){
@@ -225,33 +241,46 @@ for(i in 1:nrow(dat)){
 # save(int, file=paste0(folderGen, "turns-ArticulationRate.RData"))
 ```
 
-# Calculate difference between the interlocutors' values
+Calculate difference between the interlocutors' values
 
 ```{r}
 dat <- dat |> 
   mutate(artRateDiff = abs(turnAR - prevAR),
-         f0meanDiff = abs(f0mean - prevf0mean),
-         f0medDiff = abs(f0med - prevf0med),
-         f0IQRDiff = abs(f0IQR - prevf0IQR),
-         f0sdDiff = abs(f0sd - prevf0sd))
+         f0meanDiff = abs(f0meanz - prevf0mean),
+         f0medDiff = abs(f0medz - prevf0med),
+         f0IQRDiff = abs(f0IQRz - prevf0IQR),
+         f0sdDiff = abs(f0sdz - prevf0sd))
 ```
 
-# Fix format of variables (factor, numeric etc)
+Fix format of variables (factor, numeric etc)
 
 ```{r}
 dat <- dat |> 
   mutate_at(c("file", "dyad", "speaker", "confederate"), as.factor)
 ```
 
+Center predictors
 
-# save dataset
+```{r}
+dat <- dat |> 
+  mutate(prevf0meanC = prevf0mean - mean(prevf0mean, na.rm=TRUE),
+         prevf0medC = prevf0med - mean(prevf0med, na.rm=TRUE),
+         prevf0IQRC = prevf0IQR - mean(prevf0IQR, na.rm=TRUE),
+         prevf0sdC = prevf0sd - mean(prevf0sd, na.rm=TRUE),
+         prevARc = prevAR - mean(prevAR, na.rm=TRUE),
+         accentRatingc = accentRating - mean(accentRating, na.rm=TRUE),
+         confederateType = ifelse(grepl("L1", confederate), "L1", "L2")) # create a variable `confederateType`
+```
+
+
+Save dataset
 
 ```{r}
 save(dat, file=paste0(folderGen, "speechData.RData"))
 ```
 
 
-# Plot the differences
+Plot the differences
 
 ```{r}
 # articulation rate

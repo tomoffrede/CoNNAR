@@ -15,17 +15,12 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r include=FALSE}
 library(tidyverse)
 library(lmerTest)
+library(broom)
 
 folder <- paste0(here::here(), "/data/")
 load(paste0(folder, "speechData.RData"))
 dat <- dat |> 
-  mutate(prevf0meanC = prevf0mean - mean(prevf0mean, na.rm=TRUE),
-         prevf0medC = prevf0med - mean(prevf0med, na.rm=TRUE),
-         prevf0IQRC = prevf0IQR - mean(prevf0IQR, na.rm=TRUE),
-         prevf0sdC = prevf0sd - mean(prevf0sd, na.rm=TRUE),
-         prevARc = prevAR - mean(prevAR, na.rm=TRUE),
-         accentRatingc = accentRating - mean(accentRating, na.rm=TRUE),
-         confederateType = ifelse(grepl("L2", confederate), "L2", "L1"))
+  group_by()
 ```
 
 # Notes to understand the analysis
@@ -49,8 +44,8 @@ tabl <- "
 | Type of adapatation | Did it occur overall? | Confederate effect?                                       |
 |---------------------|:---------------------:|:---------------------------------------------------------:|
 | Synchrony           | no                    | no                                                        |
-| Convergence         | no                    |  divergence from L1; convergence to L2 (marginal effects) |
-| Register            | yes (marginal)        | *slightly* slower with L2 conf.                           |
+| Convergence         | no                    | They converge more the lower the confederate's accent rating |
+| Register            | no                    | no            |
 "
 cat(tabl) # output the table in a format good for HTML/PDF/docx conversion
 ```
@@ -62,7 +57,7 @@ tabl <- "
 | Type of adapatation | Did it occur overall? | Confederate effect? |
 |---------------------|:---------------------:|:-------------------:|
 | Synchrony           | yes                   | no                  |
-| Convergence         | no                    | no                  |
+| Convergence         | yes                 | slightly stronger convergence to **L2**          |
 "
 cat(tabl)
 ```
@@ -73,8 +68,8 @@ cat(tabl)
 tabl <- "
 | Type of adapatation | Did it occur overall? | Confederate effect?                                                     |
 |---------------------|:---------------------:|:-----------------------------------------------------------------------:|
-| Synchrony           | yes                   | small indication that more convergence to L1 than L2 (but not reliable) |
-| Convergence         | marginally            | no                                                                      |
+| Synchrony           | yes                   | no |
+| Convergence         | yes            | no          |
 "
 cat(tabl)
 ```
@@ -86,7 +81,7 @@ tabl <- "
 | Type of adapatation | Did it occur overall? | Confederate effect?                     |
 |---------------------|:---------------------:|:---------------------------------------:|
 | Synchrony           | no                    | no                                      |
-| Convergence         | no                    | marginal effect: convergence only to L2 |
+| Convergence         | marginally                    | no |
 "
 cat(tabl)
 ```
@@ -111,12 +106,12 @@ cat(tabl)
 Most L2 confederates spoke slower than L1 confederates. Only one of the C1 confederates did not speak slower than L1 speakers, and the other C1 confederate's difference was also smaller. The B2 confederate spoke the slowest.
 
 ```{r}
-ggplot(dat |> filter(speaker=="confederate"), aes(confederateType, turnAR))+
+ggplot(dat |> filter(role=="confederate"), aes(confederateType, turnAR))+
   geom_boxplot()
 
 dat$confederate <- relevel(dat$confederate, ref="L1")
-summary(lmer(turnAR ~ confederate + (1|file), dat |> filter(speaker=="confederate")))
-summary(lmer(turnAR ~ confederateType + (1|file), dat |> filter(speaker=="confederate")))
+summary(lmer(turnAR ~ confederate + (1|file), dat |> filter(role=="confederate")))
+summary(lmer(turnAR ~ confederateType + (1|file), dat |> filter(role=="confederate")))
 ```
 
 ### Accent ratings
@@ -124,10 +119,10 @@ summary(lmer(turnAR ~ confederateType + (1|file), dat |> filter(speaker=="confed
 The higher the accent rating, the slower the speech.
 
 ```{r}
-ggplot(dat |> filter(speaker=="confederate"), aes(as.factor(accentRating), turnAR))+
+ggplot(dat |> filter(role=="confederate"), aes(as.factor(accentRating), turnAR))+
   geom_boxplot()
 
-summary(lmer(turnAR ~ accentRatingc + (1|file), dat |> filter(speaker=="confederate")))
+summary(lmer(turnAR ~ accentRatingc + (1|file), dat |> filter(role=="confederate")))
 ```
 
 ## Synchrony
@@ -135,7 +130,7 @@ summary(lmer(turnAR ~ accentRatingc + (1|file), dat |> filter(speaker=="confeder
 The model below shows that the participants don't synchronize  to the confederate.
 
 ```{r}
-summary(m0 <- lmer(turnAR ~ prevARc + (1|file), dat |> filter(speaker=="participant")))
+summary(m0 <- lmer(turnAR ~ prevARc + (1|file), dat |> filter(role=="participant")))
 ```
 
 ### Confederate effect
@@ -144,8 +139,8 @@ And they don't synchronize regardless of who the confederate is.
 Considering accent rating instead of `confederate type` also didn't bring out any effects.
 
 ```{r}
-summary(m1 <- lmer(turnAR ~ prevARc : confederateType + (1|file), dat |> filter(speaker=="participant")))
-summary(m2 <- lmer(turnAR ~ prevARc : accentRatingc + (1|file), dat |> filter(speaker=="participant")))
+summary(m1 <- lmer(turnAR ~ prevARc : confederateType + (1|file), dat |> filter(role=="participant")))
+summary(m2 <- lmer(turnAR ~ prevARc : accentRatingc + (1|file), dat |> filter(role=="participant")))
 
 anova(m0, m1)
 anova(m0, m2)
@@ -156,17 +151,16 @@ anova(m0, m2)
 Participants don't converge on articulation rate to the confederates (i.e., the difference between their features doesn't change across time).
 
 ```{r}
-summary(m0 <- lmer(artRateDiff ~ turn + (1|file), dat |> filter(speaker=="participant")))
+summary(m0 <- lmer(artRateDiff ~ turn + (1|file), dat |> filter(role=="participant")))
 ```
 
 ### Confederate effect
 
-Including confederate type improved the model a lot: participants seem to behave differently when talking to L1 and L2 confederates. They seem to diverge from L1 confederates (positive slope: difference increasing) and to converge to L2 confederates (difference reducing). However, both of these effects were only marginally significant (p = 0.62 ; p = 0.66).
-Including `accent rating` did not improve the model considerably, and there was no effect.
+`Confederate type` didn't improve the model, but `accent rating` did! Participants converge on articulation rate more the lower the confederate's accent rating.
 
 ```{r}
-summary(m1 <- lmer(artRateDiff ~ turn : confederateType + (1|file), dat |> filter(speaker=="participant")))
-summary(m2 <- lmer(artRateDiff ~ turn : accentRatingc + (1|file), dat |> filter(speaker=="participant")))
+summary(m1 <- lmer(artRateDiff ~ turn : confederateType + (1|file), dat |> filter(role=="participant")))
+summary(m2 <- lmer(artRateDiff ~ turn : accentRatingc + (1|file), dat |> filter(role=="participant")))
 
 anova(m0, m1)
 anova(m0, m2)
@@ -175,13 +169,11 @@ anova(m0, m2)
 
 ## Register adaptation
 
-The participants tended to speak marginally, *slightly* slower with the L2 confederates than with L1 confederates.
-
-Using `accent rating`, there's no effect of slowing down.
+Participants did not speak differently to L1 vs L2 speakers.
 
 ```{r}
-summary(lmer(turnAR ~ confederateType + (1|file), dat |> filter(speaker=="participant")))
-summary(lmer(turnAR ~ accentRatingc + (1|file), dat |> filter(speaker=="participant")))
+summary(lmer(turnAR ~ confederateType + (1|file), dat |> filter(role=="participant")))
+summary(lmer(turnAR ~ accentRatingc + (1|file), dat |> filter(role=="participant")))
 ```
 
 
@@ -192,7 +184,7 @@ summary(lmer(turnAR ~ accentRatingc + (1|file), dat |> filter(speaker=="particip
 Participants seem to synchronize on f0 mean to the confederate.
 
 ```{r}
-summary(m0 <- lmer(f0mean ~ prevf0meanC + (1|file), dat |> filter(speaker == "participant")))
+summary(m0 <- lmer(f0meanz ~ prevf0meanC + (1|file), dat |> filter(role == "participant")))
 ```
 
 ### Confederate effect
@@ -200,8 +192,8 @@ summary(m0 <- lmer(f0mean ~ prevf0meanC + (1|file), dat |> filter(speaker == "pa
 The model without `confederate type` is better than the one with, and there is no effect with `accent rating` So participants do **not** synchronize differently to L1 vs L2 confederates.
 
 ```{r}
-summary(m1 <- lmer(f0mean ~ prevf0meanC : confederateType + (1|file), dat |> filter(speaker == "participant")))
-summary(m2 <- lmer(f0mean ~ prevf0meanC : accentRatingc + (1|file), dat |> filter(speaker == "participant")))
+summary(m1 <- lmer(f0meanz ~ prevf0meanC : confederateType + (1|file), dat |> filter(role == "participant")))
+summary(m2 <- lmer(f0meanz ~ prevf0meanC : accentRatingc + (1|file), dat |> filter(role == "participant")))
 
 anova(m0, m1)
 anova(m0, m2)
@@ -209,19 +201,19 @@ anova(m0, m2)
 
 ## Convergence
 
-Participants do not converge to the confederates.
+Participants also converge to the confederates.
 
 ```{r}
-summary(m0 <- lmer(f0meanDiff ~ turn + (1|file), dat |> filter(speaker == "participant")))
+summary(m0 <- lmer(f0meanDiff ~ turn + (1|file), dat |> filter(role == "participant")))
 ```
 
 ### Confederate effect
 
-The non-convergence was the same for all confederates.
+`Confederate type` seems to improve the model (lower AIC), but the direction of the effect is the same. It seems that participants converge more to L2 than to L1 speakers though.
 
 ```{r}
-summary(m1 <- lmer(f0meanDiff ~ turn : confederateType + (1|file), dat |> filter(speaker == "participant")))
-summary(m2 <- lmer(f0meanDiff ~ turn : accentRating + (1|file), dat |> filter(speaker == "participant")))
+summary(m1 <- lmer(f0meanDiff ~ turn : confederateType + (1|file), dat |> filter(role == "participant")))
+summary(m2 <- lmer(f0meanDiff ~ turn : accentRating + (1|file), dat |> filter(role == "participant")))
 
 anova(m0, m1)
 anova(m0, m2)
@@ -234,17 +226,16 @@ anova(m0, m2)
 As for f0 mean: participants synchronize to their interlocutors.
 
 ```{r}
-summary(m0 <- lmer(f0med ~ prevf0medC + (1|file), dat |> filter(speaker == "participant")))
+summary(m0 <- lmer(f0med ~ prevf0medC + (1|file), dat |> filter(role == "participant")))
 ```
 
 ### Confederate effect
 
-There's marginal evidence that participants synchronize more to L1 than L2 confederates: the model `previous f0 median : confederate type` was significant, but the AIC of the model only decreased by 1 (and the convention is to consider the model better when the addition of an effect decreases AIC by 2+).
-Using `accent rating` did not bring out any effects.
+`Confederate type` did not improve the model. Participants synchronized on f0 median to the same extent.
 
 ```{r}
-summary(m1 <- lmer(f0med ~ prevf0medC : confederateType + (1|file), dat |> filter(speaker == "participant")))
-summary(m2 <- lmer(f0med ~ prevf0medC : accentRatingc + (1|file), dat |> filter(speaker == "participant")))
+summary(m1 <- lmer(f0med ~ prevf0medC : confederateType + (1|file), dat |> filter(role == "participant")))
+summary(m2 <- lmer(f0med ~ prevf0medC : accentRatingc + (1|file), dat |> filter(role == "participant")))
 
 anova(m0, m1)
 anova(m0, m2)
@@ -252,19 +243,19 @@ anova(m0, m2)
 
 ## Convergence
 
-There was a marginal effect of convergence on f0 median.
+Participants converged on f0 median.
 
 ```{r}
-summary(m0 <- lmer(f0medDiff ~ turn + (1|file), dat |> filter(speaker == "participant")))
+summary(m0 <- lmer(f0medDiff ~ turn + (1|file), dat |> filter(role == "participant")))
 ```
 
 ### Confederate effect
 
-The model with `confederate type` was worse than without, so this finding isn't reliable. There was also no effect with `accent rating`.
+`Confederate type` made the model worse.
 
 ```{r}
-summary(m1 <- lmer(f0medDiff ~ turn : confederateType + (1|file), dat |> filter(speaker == "participant")))
-summary(m2 <- lmer(f0medDiff ~ turn : accentRating + (1|file), dat |> filter(speaker == "participant")))
+summary(m1 <- lmer(f0medDiff ~ turn : confederateType + (1|file), dat |> filter(role == "participant")))
+summary(m2 <- lmer(f0medDiff ~ turn : accentRating + (1|file), dat |> filter(role == "participant")))
 
 anova(m0, m1)
 anova(m0, m2)
@@ -277,16 +268,16 @@ anova(m0, m2)
 Participants did not synchronize on f0 SD.
 
 ```{r}
-summary(m0 <- lmer(f0sd ~ prevf0sdC + (1|file), dat |> filter(speaker == "participant")))
+summary(m0 <- lmer(f0sd ~ prevf0sdC + (1|file), dat |> filter(role == "participant")))
 ```
 
 ### Confederate effect
 
-There was no by-confederate effect either.
+Adding `confederate` to the model didn't improve it enough. There was no robust by-confederate effect.
 
 ```{r}
-summary(m1 <- lmer(f0sd ~ prevf0sdC : confederateType + (1|file), dat |> filter(speaker == "participant")))
-summary(m2 <- lmer(f0sd ~ prevf0sdC : accentRatingc + (1|file), dat |> filter(speaker == "participant")))
+summary(m1 <- lmer(f0sd ~ prevf0sdC : confederateType + (1|file), dat |> filter(role == "participant")))
+summary(m2 <- lmer(f0sd ~ prevf0sdC : accentRatingc + (1|file), dat |> filter(role == "participant")))
 
 anova(m0, m1)
 anova(m0, m2)
@@ -294,19 +285,19 @@ anova(m0, m2)
 
 ## Convergence
 
-There was no convergence effect on f0 SD either.
+Participants converged slightly on f0 SD.
 
 ```{r}
-summary(m0 <- lmer(f0sdDiff ~ turn + (1|file), dat |> filter(speaker == "participant")))
+summary(m0 <- lmer(f0sdDiff ~ turn + (1|file), dat |> filter(role == "participant")))
 ```
 
 ### Confederate effect
 
-Including `confederate type` in the model reduced AIC. According to this model, participants didn't converge (or diverge) to L1 confederates, but converged to L2 confederates (marginal, small effect).
+Including `confederate type` in the model increased AIC. There was no robust confederate effect.
 
 ```{r}
-summary(m1 <- lmer(f0sdDiff ~ turn : confederateType + (1|file), dat |> filter(speaker == "participant")))
-summary(m2 <- lmer(f0sdDiff ~ turn : accentRating + (1|file), dat |> filter(speaker == "participant")))
+summary(m1 <- lmer(f0sdDiff ~ turn : confederateType + (1|file), dat |> filter(role == "participant")))
+summary(m2 <- lmer(f0sdDiff ~ turn : accentRating + (1|file), dat |> filter(role == "participant")))
 
 anova(m0, m1)
 anova(m0, m2)
@@ -319,7 +310,7 @@ anova(m0, m2)
 Participants did not synchronize on f0 IQR.
 
 ```{r}
-summary(m0 <- lmer(f0IQR ~ prevf0IQRC + (1|file), dat |> filter(speaker == "participant")))
+summary(m0 <- lmer(f0IQR ~ prevf0IQRC + (1|file), dat |> filter(role == "participant")))
 ```
 
 ### Confederate effect
@@ -327,8 +318,8 @@ summary(m0 <- lmer(f0IQR ~ prevf0IQRC + (1|file), dat |> filter(speaker == "part
 There was no by-confederate effect either.
 
 ```{r}
-summary(m1 <- lmer(f0IQR ~ prevf0IQRC : confederateType + (1|file), dat |> filter(speaker == "participant")))
-summary(m2 <- lmer(f0IQR ~ prevf0IQRC : accentRatingc + (1|file), dat |> filter(speaker == "participant")))
+summary(m1 <- lmer(f0IQR ~ prevf0IQRC : confederateType + (1|file), dat |> filter(role == "participant")))
+summary(m2 <- lmer(f0IQR ~ prevf0IQRC : accentRatingc + (1|file), dat |> filter(role == "participant")))
 
 anova(m0, m1)
 anova(m0, m2)
@@ -339,18 +330,127 @@ anova(m0, m2)
 Participants converged on f0 IQR.
 
 ```{r}
-summary(m0 <- lmer(f0IQRDiff ~ turn + (1|file), dat |> filter(speaker == "participant")))
+summary(m0 <- lmer(f0IQRDiff ~ turn + (1|file), dat |> filter(role == "participant")))
 ```
 
 ### Confederate effect
 
-Including `confederate type` and `accent rating` in the model increased AIC (i.e. made the model worse).
+Including `confederate type` and `accent rating` in the model increased AIC (i.e. made the model worse). No confederate effect.
 
 ```{r}
-summary(m1 <- lmer(f0IQRDiff ~ turn : confederateType + (1|file), dat |> filter(speaker == "participant")))
-summary(m2 <- lmer(f0IQRDiff ~ turn : accentRating + (1|file), dat |> filter(speaker == "participant")))
+summary(m1 <- lmer(f0IQRDiff ~ turn : confederateType + (1|file), dat |> filter(role == "participant")))
+summary(m2 <- lmer(f0IQRDiff ~ turn : accentRating + (1|file), dat |> filter(role == "participant")))
 
 anova(m0, m1)
 anova(m0, m2)
+```
+
+
+# Some individual effects
+
+```{r}
+# # f0 median
+# 
+# folderInd <- paste0(here::here(), "/individual/f0median/")
+# for(s in unique(dat$speaker[dat$role=="participant"])){
+#   m <- tidy(lm(f0medDiff ~ turn : confederateType, dat |> filter(speaker==s)))
+#   ggplot(dat |> filter(speaker==s), aes(turn, f0medDiff))+
+#     geom_boxplot()+
+#     geom_point()+
+#     facet_wrap(~confederateType)+
+#     geom_smooth(method="lm")+
+#     ggtitle(paste(s, "; L1:", format(round(m$statistic[2], 3)), "; L2:", format(round(m$statistic[3], 3))))
+#   ggsave(filename = paste0(folderInd, s, ".png"))
+# }
+# 
+# # f0 mean
+# 
+# folderInd <- paste0(here::here(), "/individual/f0mean/")
+# for(s in unique(dat$speaker[dat$role=="participant"])){
+#   m <- tidy(lm(f0meanDiff ~ turn : confederateType, dat |> filter(speaker==s)))
+#   ggplot(dat |> filter(speaker==s), aes(turn, f0meanDiff))+
+#     geom_boxplot()+
+#     geom_point()+
+#     facet_wrap(~confederateType)+
+#     geom_smooth(method="lm")+
+#     ggtitle(paste(s, "; L1:", format(round(m$statistic[2], 3)), "; L2:", format(round(m$statistic[3], 3))))
+#   ggsave(filename = paste0(folderInd, s, ".png"))
+# }
+# 
+# # f0 SD
+# 
+# folderInd <- paste0(here::here(), "/individual/f0SD/")
+# for(s in unique(dat$speaker[dat$role=="participant"])){
+#   m <- tidy(lm(f0sdDiff ~ turn : confederateType, dat |> filter(speaker==s)))
+#   ggplot(dat |> filter(speaker==s), aes(turn, f0sdDiff))+
+#     geom_boxplot()+
+#     geom_point()+
+#     facet_wrap(~confederateType)+
+#     geom_smooth(method="lm")+
+#     ggtitle(paste(s, "; L1:", format(round(m$statistic[2], 3)), "; L2:", format(round(m$statistic[3], 3))))
+#   ggsave(filename = paste0(folderInd, s, ".png"))
+# }
+# 
+# # f0 IQR
+# 
+# folderInd <- paste0(here::here(), "/individual/f0IQR/")
+# for(s in unique(dat$speaker[dat$role=="participant"])){
+#   m <- tidy(lm(f0IQRDiff ~ turn : confederateType, dat |> filter(speaker==s)))
+#   ggplot(dat |> filter(speaker==s), aes(turn, f0IQRDiff))+
+#     geom_boxplot()+
+#     geom_point()+
+#     facet_wrap(~confederateType)+
+#     geom_smooth(method="lm")+
+#     ggtitle(paste(s, "; L1:", format(round(m$statistic[2], 3)), "; L2:", format(round(m$statistic[3], 3))))
+#   ggsave(filename = paste0(folderInd, s, ".png"))
+# }
+```
+
+```{r}
+# # articulation rate - register adaptation
+# 
+# folderInd <- paste0(here::here(), "/individual/register-ArticRate/")
+# for(s in unique(dat$speaker[dat$role=="participant"])){
+#   m <- tidy(lm(turnAR ~ confederateType, dat |> filter(speaker==s)))
+#   ggplot(dat |> filter(speaker==s), aes(confederateType, turnAR))+
+#     geom_boxplot()+
+#     ggtitle(paste(s, "t = ", format(round(m$statistic[2], 3)), "(Confederate:", dat$confederate[dat$speaker==s & !grepl("L1", dat$confederate)], ")"))
+#   ggsave(filename = paste0(folderInd, s, ".png"))
+# }
+# 
+# # articulation rate - convergence
+# 
+# folderInd <- paste0(here::here(), "/individual/conv-ArticRate/")
+# for(s in unique(dat$speaker[dat$role=="participant"])){
+#   m <- tidy(lm(artRateDiff ~ turn : confederateType, dat |> filter(speaker==s)))
+#   ggplot(dat |> filter(speaker==s), aes(turn, artRateDiff))+
+#     geom_boxplot()+
+#     geom_point()+
+#     geom_smooth(method="lm")+
+#     facet_wrap(~confederateType)+
+#     ggtitle(paste(s, "; L1:", format(round(m$statistic[2], 3)), "; L2:", format(round(m$statistic[3], 3)), "(Conf:", dat$confederate[dat$speaker==s & !grepl("L1", dat$confederate)], ")"))
+#   ggsave(filename = paste0(folderInd, s, ".png"))
+# }
+```
+
+
+# Figures for poster
+
+```{r}
+ggplot(dat |> filter(role=="participant"), aes(turn, f0IQRDiff))+
+  geom_point()+
+  geom_smooth(method="lm")+
+  facet_wrap(~confederateType, scales = "free")+
+  labs(x = "Time", y="Difference in f0 IQR", title="Convergence on f0 IQR")+
+  theme_bw()+
+  theme(plot.title = element_text(hjust=0.5),
+        )
+ggsave(filename=paste0(here::here(), "/figures/f0-conv.png"))
+```
+
+# Session Info
+
+```{r}
+sessionInfo()
 ```
 
