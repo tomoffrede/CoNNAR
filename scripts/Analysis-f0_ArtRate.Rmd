@@ -154,6 +154,15 @@ Participants don't converge on articulation rate to the confederates (i.e., the 
 summary(m0 <- lmer(artRateDiff ~ turn + (1|file), dat |> filter(role=="participant")))
 ```
 
+### Convergence to L1 confederates
+
+Participants don't converge to the L1 confederates.
+
+```{r}
+summary(lmer(artRateDiff ~ turn + (1|file), dat |> filter(role=="participant", confederate=="L1")))
+```
+
+
 ### Confederate effect
 
 `Confederate type` didn't improve the model, but `accent rating` did! Participants converge on articulation rate more the lower the confederate's accent rating.
@@ -441,11 +450,14 @@ ggplot(dat |> filter(role=="participant"), aes(turn, f0IQRDiff))+
   geom_point()+
   geom_smooth(method="lm")+
   facet_wrap(~confederateType, scales = "free")+
-  labs(x = "Time", y="Difference in f0 IQR", title="Convergence on f0 IQR")+
+  labs(x = "Time", y="Difference in f0 IQR", title="")+
   theme_bw()+
-  theme(plot.title = element_text(hjust=0.5),
-        )
-ggsave(filename=paste0(here::here(), "/figures/f0-conv.png"))
+  theme(plot.title = element_text(hjust=0.5, size=16),
+        axis.title = element_text(size=14),
+        axis.text = element_text(size=12),
+        strip.text = element_text(size = 14)
+         )
+ggsave(filename=paste0(here::here(), "/figures/f0-conv.png"), height=1550, width=1700, units="px")
 ```
 
 # Session Info
